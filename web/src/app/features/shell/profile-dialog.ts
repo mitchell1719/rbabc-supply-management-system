@@ -1,7 +1,7 @@
 import { Component, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
-import { errMsg, publicUrl, rpc, sb } from '../../core/supabase';
+import { errMsg, rpc, sb } from '../../core/supabase';
 import { initials } from '../../shared/format';
 import { Profile } from '../../core/models';
 
