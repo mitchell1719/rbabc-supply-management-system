@@ -46,6 +46,11 @@ export function peso(v: unknown): string {
   return '₱' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** 1234.5 → '1,234.50' */
+export function money(v: unknown): string {
+  return peso(v).slice(1);
+}
+
 export function pct(v: number | null | undefined): string {
   return v == null || !isFinite(v) ? '—' : (v * 100).toFixed(1) + '%';
 }
