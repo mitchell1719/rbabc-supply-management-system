@@ -177,6 +177,7 @@
  * RB ABC HRIS — browser side: session, navigation, shared UI helpers.
  * Pages are defined further down as PAGES[id] = async (el, arg) => {}.
  * ===================================================================== */
+var DEFAULT_PW = 'rbabc@hris';   // same as DEFAULT_PASSWORD in Code.gs
 var S = { token: '', me: null, lookups: null, page: '', arg: null, notifs: [] };
 var PAGES = {};
 
@@ -1779,7 +1780,7 @@ PAGES.users = function (el) {
     el.querySelector('#new').onclick = function () { userForm(null, roles, l); };
     bindRows(el, users, function (u) { userForm(u, roles, l); });
     on(el, '[data-pw]', function (b) {
-      var pw = 'Rb' + Math.random().toString(36).slice(2, 8) + '!' + Math.floor(Math.random() * 90 + 10);
+      var pw = DEFAULT_PW;
       modal({ title: 'Reset password — ' + b.getAttribute('data-pw'), narrow: true, ok: 'Reset',
         body: field('Temporary password', 'password', 'text', pw, { hint: 'give it to the user; they change it at login' }),
         onOk: function (m) { return api('userResetPassword', { username: b.getAttribute('data-pw'), password: formData(m).password }); } });
@@ -1800,7 +1801,7 @@ function userForm(u, roles, l) {
         opts(allEmps.map(function (e) { return { v: e.EmployeeID, l: e.FullName + ' (' + e.EmployeeID + ') — ' + e.Branch }; }), u.EmployeeID, '— none —') + '</select></div>' +
       '<div class="span-all" id="brWrap"><label>Branches covered (Branch Manager)</label><div class="checks">' + l.branches.map(function (b) {
         return '<label><input type="checkbox" name="Branches" data-multi value="' + h(b.Branch) + '"' + (sel.indexOf(b.Branch) >= 0 ? ' checked' : '') + '> ' + h(b.Branch) + '</label>'; }).join('') + '</div></div>' +
-      (isNew ? field('Temporary password', 'password', 'text', 'Rb' + Math.random().toString(36).slice(2, 8) + '!' + Math.floor(Math.random() * 90 + 10)) :
+      (isNew ? field('Temporary password', 'password', 'text', DEFAULT_PW) :
         field('Status', 'Active', 'select', u.Active, { options: [{ v: 'TRUE', l: 'Active' }, { v: 'FALSE', l: 'Inactive (cannot log in)' }] })) + '</div>',
     onOk: function (el) {
       var x = formData(el), pw = x.password; delete x.password;

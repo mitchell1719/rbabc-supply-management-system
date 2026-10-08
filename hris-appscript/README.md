@@ -23,15 +23,19 @@ appsscript.json  manifest (Manila time zone, V8, web app settings)
    * **appsscript.json**: replace its contents.
 5. Choose **setup** in the function list and click **Run**. Accept the permissions (Sheets, Drive, Gmail send, triggers).
    This creates every sheet tab and the starting HQs, branches, departments, positions, 2026 holidays and settings.
-   It also makes the first **Super Admin** account. Open **Execution log** to see its username (`admin`) and
-   temporary password.
+   It also makes the first **Super Admin** account: username `admin`, password `rbabc@hris`.
 6. Choose **installTriggers** and click **Run**. This sets up the nightly job at about 12:30 AM Manila time.
 7. Click **Deploy → New deployment → Web app** and set:
    * Execute as: **Me**
    * Who has access: **Anyone**
 
    Then click **Deploy** and copy the web app URL. That URL is the HRIS.
-8. Open the URL and log in as `admin` with the temporary password. You will be asked to choose a new one.
+8. Open the URL and log in as `admin` with the password `rbabc@hris`. You will be asked to choose a new one.
+
+**Default password:** `rbabc@hris` is the starting password for the admin and is pre-filled for new accounts and
+password resets (`DEFAULT_PASSWORD` in `Code.gs`, `DEFAULT_PW` in `Index.html`). Everyone must change it at
+first login. **Forgot the admin password?** Run `resetAdminPassword()` from the editor: `admin` goes back to
+`rbabc@hris`.
 
 After you change the code later, use **Deploy → Manage deployments → Edit → Version: New version**. This keeps the
 same URL. If an update adds sheet columns, run `setup()` again. It is safe: it only adds missing tabs, columns and

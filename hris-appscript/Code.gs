@@ -17,6 +17,8 @@
 
 var TZ = 'Asia/Manila';
 var SESSION_HOURS = 6;
+/** Starting password for the first admin, new accounts and password resets. Everyone must change it at first login. */
+var DEFAULT_PASSWORD = 'rbabc@hris';
 
 /* ================================================================== SECTION: 1. web app, login, router, roles */
 
@@ -2355,13 +2357,29 @@ function setup() {
   seed_();
   var msg = 'Setup complete.';
   if (!table_('Users').length) {
-    var pw = 'Hr' + Utilities.getUuid().replace(/-/g, '').slice(0, 8) + '!';
+    var pw = DEFAULT_PASSWORD;
     var salt = newSalt_();
     insert_('Users', { Username: 'admin', Name: 'Super Admin', Email: Session.getEffectiveUser().getEmail(), Role: 'SUPER_ADMIN', Active: 'TRUE',
                        MustChange: 'TRUE', Salt: salt, PasswordHash: hash_(pw, salt), CreatedAt: stamp_() });
     msg += ' First login → username: admin · temporary password: ' + pw + ' (you will be asked to change it).';
   }
   filesFolder_('');
+  Logger.log(msg);
+  return msg;
+}
+
+/** Forgot the admin password? Run this from the editor: the "admin" account goes back to the default password. */
+function resetAdminPassword() {
+  ownerOnly_();
+  _ss = SpreadsheetApp.getActiveSpreadsheet() || ss_();
+  _cache = {};
+  var row = findBy_('Users', 'Username', 'admin', true);
+  var salt = newSalt_();
+  if (row) update_('Users', row._row, { Salt: salt, PasswordHash: hash_(DEFAULT_PASSWORD, salt), MustChange: 'TRUE', Active: 'TRUE', Role: 'SUPER_ADMIN' });
+  else insert_('Users', { Username: 'admin', Name: 'Super Admin', Email: Session.getEffectiveUser().getEmail(), Role: 'SUPER_ADMIN', Active: 'TRUE',
+                          MustChange: 'TRUE', Salt: salt, PasswordHash: hash_(DEFAULT_PASSWORD, salt), CreatedAt: stamp_() });
+  CacheService.getScriptCache().remove('FAIL_ADMIN');
+  var msg = 'admin password reset to: ' + DEFAULT_PASSWORD + ' (you will be asked to change it at login).';
   Logger.log(msg);
   return msg;
 }
