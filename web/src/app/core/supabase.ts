@@ -19,10 +19,10 @@ export async function rpc<T = any>(fn: string, args: Record<string, unknown> = {
 }
 
 /** Runs a select and throws a readable Error on failure. */
-export async function rows<T = any>(q: PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+export async function rows<T = any>(q: PromiseLike<{ data: unknown; error: { message: string } | null }>): Promise<T[]> {
   const { data, error } = await q;
   if (error) throw new Error(error.message);
-  return data ?? [];
+  return (data ?? []) as T[];
 }
 
 export async function signedUrl(bucket: string, path: string, seconds = 3600): Promise<string> {
