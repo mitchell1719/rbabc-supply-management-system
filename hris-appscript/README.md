@@ -5,19 +5,10 @@ Google Drive. The sheet is the database, and uploaded files (selfies, documents,
 **HRIS Files** folder next to it.
 
 ```
-Code.gs        web app entry, login / sessions, router, roles & permissions
-Db.gs          sheet "tables" (schema, read / insert / update), ids, Drive files, audit log, e-mail
-Hris.gs        employees, attendance, leave, overtime, approvals, recruitment, performance,
-               training, documents, employee requests, organization, settings, users
-Payroll.gs     payroll periods, computation (SSS, PhilHealth, Pag-IBIG, BIR tax), approval, payslips
-Reports.gs     dashboard, notification center, downloadable reports
-Setup.gs       setup() — creates the sheets and starting data; dailyJobs() — nightly maintenance
-Index.html     page shell (sidebar, header, login)
-Styles.html    styles
-App.html       browser: session, navigation, dialogs, tables, charts, CSV / print
-Pages.html     dashboard, employees, profile, attendance, leave, overtime, payroll, payslips
-Pages2.html    recruitment, performance, training, documents, requests, departments, positions,
-               branches, holidays, organizational structure, reports, settings, users, roles, audit logs
+Code.gs          the whole server side: web app, login / sessions, roles & permissions, sheet tables,
+                 employees, attendance, leave, overtime, payroll, recruitment, performance, training,
+                 documents, requests, organization, reports, settings, setup() and dailyJobs()
+Index.html       the whole page: styles, login, sidebar, dashboard and every module screen
 appsscript.json  manifest (Manila time zone, V8, web app settings)
 ```
 
@@ -26,11 +17,10 @@ appsscript.json  manifest (Manila time zone, V8, web app settings)
 1. In the Drive folder for the HRIS, make a new **Google Sheet** and name it, for example, `RB ABC HRIS (Database)`.
 2. In the sheet, open **Extensions → Apps Script**.
 3. In the editor, open **Project Settings** (gear) and tick **Show "appsscript.json" manifest file in editor**.
-4. Create the files with the same names and paste in their contents:
-   * Script files (**+ → Script**): `Code`, `Db`, `Hris`, `Payroll`, `Reports`, `Setup`. The editor adds `.gs` itself.
-   * HTML files (**+ → HTML**): `Index`, `Styles`, `App`, `Pages`, `Pages2`.
-   * Replace the contents of `appsscript.json`.
-   * Delete the empty `Code.gs` the editor started with, or paste `Code.gs` into it.
+4. Paste the files:
+   * **Code.gs**: replace the contents of the `Code.gs` the editor started with.
+   * **Index.html**: click **+ → HTML**, name it `Index`, and replace its contents.
+   * **appsscript.json**: replace its contents.
 5. Choose **setup** in the function list and click **Run**. Accept the permissions (Sheets, Drive, Gmail send, triggers).
    This creates every sheet tab and the starting HQs, branches, departments, positions, 2026 holidays and settings.
    It also makes the first **Super Admin** account. Open **Execution log** to see its username (`admin`) and
@@ -95,7 +85,7 @@ starting rows.
 | Reports | All | All | Their branches (no payroll) | — |
 | HR settings, users, audit log | ✓ | — | — | — |
 
-Every rule is checked on the server (`Code.gs` → `api()`), so hiding a button is never the only protection.
+Every rule is checked on the server (`api()` in `Code.gs`), so hiding a button is never the only protection.
 Requests go straight to HR when no Branch Manager account covers the employee's branch. They also go straight to HR
 when the requester is the manager.
 
