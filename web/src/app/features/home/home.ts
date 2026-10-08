@@ -21,7 +21,7 @@ interface LinkRow { id: number; name: string; url: string; description: string |
         @if (auth.is('RNS', 'Admin', 'HQ')) { <a class="btn pri" routerLink="/prs">{{ auth.is('HQ') ? 'PRS ready to serve' : 'Review PRS' }}</a> }
       </div>
     </div>
-    <img src="logo.svg" alt="" width="120" height="120">
+    <img src="logo.png" alt="" width="120" height="120">
   </section>
 
   @if (error()) { <div class="err-box" style="margin-top:14px">{{ error() }}</div> }

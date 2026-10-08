@@ -1,10 +1,11 @@
+import { LOGO } from '../../shared/brand';
 import { Component, ElementRef, OnDestroy, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { AuthService } from '../../core/auth.service';
 import { errMsg, publicUrl, rpc, sb, signedUrl } from '../../core/supabase';
 import { UiService } from '../../core/ui.service';
-import { initials, niceStamp, shortBranch } from '../../shared/format';
+import { niceStamp, shortBranch } from '../../shared/format';
 
 interface Room { id: string; name: string; kind: 'group' | 'direct'; hint: string; sort: number; }
 interface Msg { id: number; room_id: string; user_id: string | null; author: string; author_type: string | null; place: string | null;
@@ -31,7 +32,7 @@ const EMOJI = ['😀','😂','😊','😍','🥰','😉','😎','🤔','😅','�
       @else if (!msgs().length) { <div class="gempty">No messages yet.<br>Start the conversation! 👋</div> }
       @for (m of msgs(); track m.id) {
         <div class="gmsg" [class.mine]="m.user_id === me">
-          <span class="av">@if (photo(m.user_id)) { <img [src]="photo(m.user_id)" alt=""> } @else { {{ init(m.author) }} }</span>
+          <span class="av"><img [src]="photo(m.user_id) || logo" [class.def]="!photo(m.user_id)" alt=""></span>
           <div>
             <div class="who"><b>{{ m.user_id === me ? 'You' : m.author }}</b>
               @if (m.author_type) { <span class="tag">{{ tag(m) }}</span> } · {{ stamp(m.created_at) }}</div>
@@ -116,7 +117,7 @@ export class ChatDrawer implements OnDestroy {
   private channel: RealtimeChannel | null = null;
   private photos: Record<string, string> = {};
   private urls: Record<string, string> = {};
-  readonly init = initials;
+  readonly logo = LOGO;
   readonly stamp = niceStamp;
 
   constructor() {

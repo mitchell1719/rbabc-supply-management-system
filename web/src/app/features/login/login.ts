@@ -11,7 +11,7 @@ import { errMsg } from '../../core/supabase';
   <div class="wrap">
     <div class="login">
       <div class="top">
-        <div class="mark"><img src="logo.svg" alt="" width="48" height="48"><span>Rabies Buster<br>Animal Bite Center</span></div>
+        <div class="mark"><img src="logo.png" alt="" width="48" height="48"><span>Rabies Buster<br>Animal Bite Center</span></div>
         <h1>RB ABC Supply Office</h1>
         <p>Purchase requests, deliveries, inventory, stock cards, vial wastage and refrigerator logs for every Rabies Buster branch and headquarter, in one place.</p>
       </div>

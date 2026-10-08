@@ -99,7 +99,7 @@ const TYPES = ['Branch', 'HQ', 'RNS', 'Admin', 'Finance'];
         <div class="modal-bar"><b>{{ f.title }}</b></div>
         @if (f.kind === 'user') {
           <div class="grid2">
-            <div><label>Username</label><input [(ngModel)]="u.username" [readonly]="!!u.id" placeholder="e.g. DANAO"></div>
+            <div><label>Username</label><input [(ngModel)]="u.username" name="username" autocomplete="off" placeholder="e.g. DANAO"></div>
             <div><label>Display name</label><input [(ngModel)]="u.displayName" placeholder="e.g. RB ABC Danao Inc."></div>
             <div><label>Account type</label><select [(ngModel)]="u.type">@for (t of types; track t) { <option>{{ t }}</option> }</select></div>
             <div><label>Notification e-mail</label><input type="email" [(ngModel)]="u.email"></div>
@@ -413,7 +413,8 @@ export class AdminSetup {
         const body = { displayName: u.displayName, type: u.type, email: u.email.trim(), branchId: u.type === 'Branch' ? u.branchId : '',
           hqCodes: u.type === 'Branch' || u.type === 'Admin' || u.type === 'Finance' ? [] : u.hqCodes };
         if (u.type === 'HQ' && !u.hqCodes.length) throw new Error('Choose the headquarters of this account.');
-        const msg = u.id ? await this.callUsers({ action: 'update', userId: u.id, ...body, active: u.active })
+        if (!u.username.trim()) throw new Error('Enter the username.');
+        const msg = u.id ? await this.callUsers({ action: 'update', userId: u.id, username: u.username, ...body, active: u.active })
           : await this.callUsers({ action: 'create', username: u.username, password: u.password, ...body });
         this.ui.notify(msg);
         await this.loadBase();

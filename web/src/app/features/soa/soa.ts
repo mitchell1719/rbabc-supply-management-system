@@ -1,3 +1,4 @@
+import { printBrand } from '../../shared/brand';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
@@ -413,7 +414,7 @@ export class Soa {
       .sub td{background:#F2F4FA;font-weight:600}.tot td{font-size:14px;font-weight:700;background:#FFF200}small{color:#555}
       .sg{margin-top:26px}.sg td{border:1px solid #111;vertical-align:top;height:80px;width:33%;padding:4px 6px}.nm{display:block;text-align:center;margin-top:22px;font-weight:700}.ro{display:block;text-align:center;border-top:1px solid #111;margin-top:3px}
       @page{size:landscape;margin:10mm}</style>`;
-    const html = `<div class="brand"><b>RABIES BUSTER</b><span>ANIMAL BITE CENTER</span><i>“Vaccinating people against Rabies since 2019”</i></div>
+    const html = `${printBrand()}
       <h2>STATEMENT OF ACCOUNT</h2>
       <div class="f"><b>SOA No.:</b><span>${h(s.soa_no)}</span><b>Date:</b><span>${h(niceDate(s.soa_date))}</span>
         <b>DSM / BM:</b><span>${h(s.dsm_label ?? '')}</span><b>Area:</b><span>${h(s.area ?? '')}</span>

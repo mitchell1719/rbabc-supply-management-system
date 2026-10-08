@@ -1,3 +1,4 @@
+import { printBrand } from '../../shared/brand';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -260,7 +261,7 @@ export class Po {
       table{width:100%;border-collapse:collapse}.it th,.it td{border:1px solid #111;padding:4px 6px}.it th{background:#1E3A8A;color:#fff}.n{text-align:right;white-space:nowrap}
       .tot td{font-weight:700;font-size:14px;background:#FFF200}.sg{margin-top:26px}.sg td{border:1px solid #111;vertical-align:top;height:80px;width:33%;padding:4px 6px}
       .nm{display:block;text-align:center;margin-top:22px;font-weight:700}.ro{display:block;text-align:center;border-top:1px solid #111;margin-top:3px}.ct{margin-top:16px;font-size:12px}</style>`;
-    const html = `<div class="brand"><b>RABIES BUSTER</b><span>ANIMAL BITE CENTER</span><i>“Vaccinating people against Rabies since 2019”</i></div><h2>PURCHASE ORDER</h2>
+    const html = `${printBrand()}<h2>PURCHASE ORDER</h2>
       <div class="f"><b>PO No.:</b><span>${h(p.po_no)}</span><b>PO Date:</b><span>${h(niceDate(live.po_date))}</span>
         <b>Supplier:</b><span>${h(live.supplier ?? '')}</span><b>Due date:</b><span>${h(niceDate(live.due_date))}</span>
         <b>Address:</b><span>${h(live.address ?? '')}</span><b>Expected delivery:</b><span>${h(niceDate(live.expected_date))}</span>

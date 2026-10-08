@@ -14,7 +14,7 @@ interface PubSoa { no: string; dsm: string; hq: string; from: string | null; to:
   selector: 'app-soa-public',
   template: `
   <div class="pub">
-    <div class="pub-head"><img src="logo.svg" alt="" width="40" height="40"><div><b>RB ABC Supply Office</b><small>Delivery notes &amp; receiving reports (view only)</small></div>
+    <div class="pub-head"><img src="logo.png" alt="" width="40" height="40"><div><b>RB ABC Supply Office</b><small>Delivery notes &amp; receiving reports (view only)</small></div>
       @if (soa()) { <button class="btn sm noprint" (click)="print()">Print / save as PDF</button> }</div>
     @if (loading()) { <div class="empty">Loading…</div> }
     @if (error()) { <div class="err-box">{{ error() }}</div> }

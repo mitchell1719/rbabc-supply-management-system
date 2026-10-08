@@ -1,21 +1,22 @@
+import { LOGO } from '../../shared/brand';
 import { Component, computed, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
 import { NAV } from '../../core/nav';
 import { Icon } from '../../shared/icon';
-import { initials } from '../../shared/format';
 import { ProfileDialog } from './profile-dialog';
 import { PasswordDialog } from './password-dialog';
 import { ChatDrawer } from '../chat/chat-drawer';
+import { Calendar } from '../../shared/calendar';
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, ProfileDialog, PasswordDialog, ChatDrawer],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, ProfileDialog, PasswordDialog, ChatDrawer, Calendar],
   template: `
   <div class="app">
     <aside class="side no-print" [class.open]="menuOpen()">
-      <div class="brand"><img src="logo.svg" alt="" width="44" height="44"><div>{{ auth.profile()?.title }}<small>Supply Office Management</small></div></div>
+      <div class="brand"><img src="logo.png" alt="" width="44" height="44"><div>{{ auth.profile()?.title }}<small>Supply Office Management</small></div></div>
       <nav class="views" aria-label="Sections">
         @for (n of nav(); track n.path) {
           <a [routerLink]="'/' + n.path" routerLinkActive="on" (click)="menuOpen.set(false)"><app-icon [name]="n.icon" /><span>{{ n.label }}</span></a>
@@ -36,19 +37,22 @@ import { ChatDrawer } from '../chat/chat-drawer';
         <button type="button" class="chatbtn" (click)="chatOpen.set(!chatOpen())" title="Chats" aria-label="Open chats"><app-icon name="chat" />
           @if (unread()) { <span class="dot">{{ unread() > 99 ? '99+' : unread() }}</span> }</button>
         <button type="button" class="prof" (click)="showProfile.set(true)" title="My profile">
-          <span class="avatar">@if (auth.photoUrl()) { <img [src]="auth.photoUrl()" alt=""> } @else { {{ init() }} }</span>
+          <span class="avatar"><img [src]="auth.photoUrl() || logo" [class.def]="!auth.photoUrl()" alt=""></span>
           <span class="pname">{{ auth.name() }}</span></button>
       </div>
       <router-outlet />
       <footer class="no-print">© 2026 <b>RB ABC Supply Department</b>. All rights reserved. Created by: <b>Mitchell Patotoy</b></footer>
     </main>
+    <aside class="rightp no-print" aria-label="Calendar"><app-calendar /></aside>
   </div>
   @if (showProfile()) { <app-profile-dialog (closed)="showProfile.set(false)" /> }
   @if (showPw()) { <app-password-dialog (closed)="showPw.set(false)" /> }
   <app-chat-drawer [open]="chatOpen()" (closed)="chatOpen.set(false)" (unreadChange)="unread.set($event)" />
   `,
   styles: [`
-    .app{display:grid;grid-template-columns:262px minmax(0,1fr);min-height:100vh;max-width:1560px;margin:0 auto;padding:18px}
+    .app{display:grid;grid-template-columns:262px minmax(0,1fr) 290px;min-height:100vh;max-width:1880px;margin:0 auto;padding:18px}
+    .rightp{position:sticky;top:18px;align-self:start;max-height:calc(100vh - 36px);overflow-y:auto;margin-left:14px;background:#fff;border-radius:28px;padding:18px 16px;box-shadow:0 10px 30px -24px rgba(16,28,82,.4)}
+    @media(max-width:1280px){.app{grid-template-columns:262px minmax(0,1fr)}.rightp{display:none}}
     .side{background:var(--navy);color:#fff;border-radius:28px 0 0 28px;padding:22px 40px 18px 16px;display:flex;flex-direction:column;gap:12px;position:sticky;top:18px;height:calc(100vh - 36px);overflow:hidden}
     .brand{display:flex;align-items:center;gap:12px;font-family:Fraunces,Georgia,serif;font-size:18px;line-height:1.15;font-weight:700}
     .brand img{background:#fff;border-radius:50%;padding:3px;flex:none}
@@ -81,7 +85,7 @@ import { ChatDrawer } from '../chat/chat-drawer';
       .main{margin:0;border-radius:0;padding:14px 14px 0;box-shadow:none}
       .menu{display:inline-flex} .date,.pname{display:none}
     }
-    @media print{.app{display:block;padding:0}.main{margin:0;padding:0;box-shadow:none}}
+    @media print{.rightp{display:none}.app{display:block;padding:0}.main{margin:0;padding:0;box-shadow:none}}
   `],
 })
 export class Shell {
@@ -111,7 +115,7 @@ export class Shell {
     if (p.type === 'Branch') return p.branchName ?? '';
     return p.hqNames.join(' · ');
   });
-  readonly init = computed(() => initials(this.auth.name()));
+  readonly logo = LOGO;
 
   constructor() {
     this.router.events.pipe(filter((e) => e instanceof NavigationEnd)).subscribe((e) => this.url.set((e as NavigationEnd).urlAfterRedirects));

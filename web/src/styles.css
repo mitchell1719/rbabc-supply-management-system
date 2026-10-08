@@ -101,6 +101,10 @@ table.t input, table.t select { padding: 6px 8px; font-size: 13px; border-radius
 .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ---------- logo / default profile picture ---------- */
+img[src="logo.png"] { object-fit: contain; }
+img.def { object-fit: contain !important; background: #fff; padding: 2px; }
+
 /* ---------- modal ---------- */
 .overlay { position: fixed; inset: 0; z-index: 70; background: rgba(16, 28, 82, .5); display: flex; justify-content: center; align-items: flex-start; padding: 24px 16px; overflow: auto; }
 .modal { background: #fff; border-radius: 18px; width: min(860px, 100%); padding: 16px 18px 22px; box-shadow: 0 24px 60px rgba(16, 28, 82, .28); }

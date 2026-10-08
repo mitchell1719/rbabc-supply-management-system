@@ -38,7 +38,7 @@ function mondayOf(v: string): string {
   </div>
   @if (error()) { <div class="err-box no-print" style="margin-bottom:12px">{{ error() }}</div> }
   <div class="sheet">
-    <div class="brand"><img src="logo.svg" alt="" width="54" height="54">
+    <div class="brand"><img src="logo.png" alt="" width="54" height="54">
       <div class="nm"><b>RABIES BUSTER</b><span>ANIMAL BITE CENTER</span><i>“Vaccinating people against Rabies since 2019”</i></div>
       <div class="when"><b>Monday Report</b><span>{{ label(week(), true) }}</span></div></div>
     <table class="mr"><tr><th>WINS</th><th>FOR CASCADING</th><th>FOR ESCALATION</th></tr>

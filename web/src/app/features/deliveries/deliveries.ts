@@ -1,3 +1,4 @@
+import { printBrand } from '../../shared/brand';
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
@@ -388,7 +389,7 @@ export class Deliveries {
       .sg .ro{display:block;text-align:center;border-top:1px solid #111;margin-top:4px;font-size:12.5px}.note{background:#FFF200;padding:6px 8px;margin:18px 0 12px;font-size:12.5px}
       .rem{border:1px solid #111;min-height:60px;padding:4px 8px;font-size:13px}.rs{display:flex;justify-content:space-between;gap:30px;margin-top:30px}.rs div{flex:1;max-width:260px}
       .rs span{display:block;border-top:1px solid #111;text-align:center;font-size:13px}.rs em{display:block;text-align:center;font-style:normal;font-weight:600}</style>`;
-    const brand = '<div class="brand"><b>RABIES BUSTER</b><span>ANIMAL BITE CENTER</span><i>“Vaccinating people against Rabies since 2019”</i></div>';
+    const brand = printBrand();
     let html: string;
     if (kind === 'dn') {
       const rs = items.map((i) => `<td style="text-align:center">${h(i.qty)}</td><td>${h(i.unit)}</td><td>${h(i.description)}</td><td>${h(i.batch_no)}</td><td>${h(niceDate(i.expiry))}</td>`);

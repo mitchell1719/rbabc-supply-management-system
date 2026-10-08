@@ -94,5 +94,9 @@ export function printHtml(html: string): void {
   document.body.appendChild(f);
   const d = f.contentDocument!;
   d.open(); d.write(html); d.close();
-  setTimeout(() => { f.contentWindow!.focus(); f.contentWindow!.print(); setTimeout(() => f.remove(), 2000); }, 400);
+  // wait for the logo / images (at most 3 s) so they appear on the printout
+  const imgs = Array.from(d.images).filter((i) => !i.complete);
+  const loaded = Promise.all(imgs.map((i) => new Promise((ok) => { i.onload = i.onerror = ok; })));
+  Promise.race([loaded, new Promise((ok) => setTimeout(ok, 3000))]).then(() =>
+    setTimeout(() => { f.contentWindow!.focus(); f.contentWindow!.print(); setTimeout(() => f.remove(), 2000); }, 200));
 }

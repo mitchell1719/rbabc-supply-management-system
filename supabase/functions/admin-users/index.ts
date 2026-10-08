@@ -1,7 +1,7 @@
 // Admin account management (needs the service role, so it runs as an Edge Function).
 // Called from Admin → Setup → Accounts with the Admin's own session token.
 //   { action: 'create', username, displayName, type, hqCodes, branchId, email, password }
-//   { action: 'update', userId, displayName, type, hqCodes, branchId, email, active }
+//   { action: 'update', userId, username, displayName, type, hqCodes, branchId, email, active }
 //   { action: 'reset_password', userId, password }
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders, json } from '../_shared/cors.ts';
@@ -42,6 +42,20 @@ Deno.serve(async (req) => {
     }
     if (b.action === 'update') {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (b.username !== undefined) {
+        const username = String(b.username ?? '').trim().toUpperCase();
+        if (!username) return json({ ok: false, msg: 'Enter the username.' });
+        const { data: cur } = await sb.from('app_users').select('username').eq('id', b.userId).single();
+        if (!cur) return json({ ok: false, msg: 'Account not found.' });
+        if (cur.username.toUpperCase() !== username) {
+          const { data: dup } = await sb.from('app_users').select('id').ilike('username', username).neq('id', b.userId).maybeSingle();
+          if (dup) return json({ ok: false, msg: `${username} already exists.` });
+          // the login uses <username>@rbabc.local behind the scenes
+          const { error: ea } = await sb.auth.admin.updateUserById(b.userId, { email: authEmail(username), email_confirm: true });
+          if (ea) return json({ ok: false, msg: ea.message });
+          patch.username = username;
+        }
+      }
       if (b.displayName !== undefined) patch.display_name = String(b.displayName).trim();
       if (b.type !== undefined) { if (!TYPES.includes(b.type)) return json({ ok: false, msg: 'Unknown type.' }); patch.type = b.type; }
       if (b.hqCodes !== undefined) patch.hq_codes = b.hqCodes;

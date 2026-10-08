@@ -1,8 +1,8 @@
+import { LOGO } from '../../shared/brand';
 import { Component, inject, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../core/auth.service';
 import { errMsg, rpc, sb } from '../../core/supabase';
-import { initials } from '../../shared/format';
 import { Profile } from '../../core/models';
 
 @Component({
@@ -13,7 +13,7 @@ import { Profile } from '../../core/models';
     <form class="modal narrow" (ngSubmit)="save()">
       <div class="modal-bar"><b>My profile</b></div>
       <div class="photo">
-        <span class="avatar">@if (preview()) { <img [src]="preview()" alt=""> } @else { {{ init(f.fullName || p.displayName) }} }</span>
+        <span class="avatar"><img [src]="preview() || logo" [class.def]="!preview()" alt=""></span>
         <div class="btns">
           <button type="button" class="btn sm" (click)="file.click()">Upload photo</button>
           <button type="button" class="btn sm outline-red" (click)="removePhoto()">Remove photo</button>
@@ -48,7 +48,7 @@ export class ProfileDialog {
   readonly ok = signal(false);
   private photo: Blob | null = null;
   private photoRemoved = false;
-  readonly init = initials;
+  readonly logo = LOGO;
 
   pick(e: Event): void {
     const input = e.target as HTMLInputElement;
