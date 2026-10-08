@@ -41,6 +41,39 @@ After you change the code later, use **Deploy → Manage deployments → Edit �
 same URL. If an update adds sheet columns, run `setup()` again. It is safe: it only adds missing tabs, columns and
 starting rows.
 
+## Import the RB ABC Directory
+
+The HRIS can load your existing **RB ABC - Directory** spreadsheet, so you don't retype everyone.
+
+1. In **HR Settings**, set `directory_source` to the directory's link. It is pre-filled with the link you gave.
+   A Google Sheet works directly. An Excel file (`.xlsx`) is converted to a Google Sheet copy in `HRIS Files/Directory`.
+2. Click **HR Settings → Import from directory…** (or **Directory → Import from directory**). You can also run
+   `importDirectory()` from the editor.
+
+What it does:
+* **People tabs** (RB Execom, RB Supply Officer, RB Office Staff, RB Nurses LUZ / VIS / MIN) become **Employees**.
+  It brings in name, gender, position, branch, contact, e-mail, address, birth date, date of appointment, employee or
+  ID number, TIN, SSS, PhilHealth, Pag-IBIG, bank account, emergency contact and resignation date.
+  Execom and office staff go to **Central Office**, and Supply Officers go to their HQ.
+* **RB Branches** tabs fill in each branch's code, address, phone, e-mail and date opened. Branches the HRIS doesn't
+  have yet are added.
+* **RB Managers** sets each branch's manager and creates a **Branch Manager** account covering their branches.
+* Every active employee gets an **Employee** account. The username is first initial + last name (e.g. `jsoquite`)
+  and the password is **`rbabc@hris`**, which they must change at first login. **User Management** lists the usernames.
+* Partners, Cirquolus (which holds passwords), CSR and info tabs are **not** imported. The Directory page shows the
+  Emergency Contact Numbers, Government Offices and Runners tabs read-only.
+
+You can run it again after the directory changes. It matches people by employee number or name, adds new ones, and
+fills only empty fields, so edits made in the HRIS are kept. The account that deployed the web app must be able to
+open the directory file.
+
+## Can't log in?
+
+Run **`checkLogin()`** in the Apps Script editor and read the Execution log. It checks the spreadsheet, the `admin`
+account, whether the password is still `rbabc@hris`, and the 10-minute lock after 5 wrong tries.
+**`resetAdminPassword()`** sets `admin` back to `rbabc@hris` and clears the lock. After pasting new code, always use
+**Deploy → Manage deployments → Edit → Version: New version**. Otherwise the web app link keeps running the old code.
+
 ## First steps after installing
 
 1. **HR Settings** (Super Admin): check `company_name`, `default_shift` (08:00–17:00, 15-minute grace period, Sunday

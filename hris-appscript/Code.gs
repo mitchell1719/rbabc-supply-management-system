@@ -93,12 +93,22 @@ function doGet() {
 
 /* ------------------------------------------------------------------ login & sessions */
 
+/** Stored as "H" + base64 so a hash can never start with + or = (which Sheets would read as a formula). */
 function hash_(password, salt) {
   var s = salt + '|' + password;
   for (var i = 0; i < 300; i++) {
     s = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8));
   }
-  return s;
+  return 'H' + s;
+}
+
+/** True when the password matches the account (also accepts hashes saved by the first version, without the "H"). */
+function checkPw_(row, password) {
+  var stored = String(row.PasswordHash || '').trim(), salt = String(row.Salt || '').trim();
+  if (!stored || !salt) return false;
+  var tries = [String(password || '')];
+  if (tries[0].trim() !== tries[0]) tries.push(tries[0].trim());   // pasted with a space
+  return tries.some(function (pw) { var h = hash_(pw, salt); return h === stored || h.slice(1) === stored; });
 }
 
 function newSalt_() { return Utilities.getUuid().replace(/-/g, ''); }
@@ -109,15 +119,15 @@ function login(username, password) {
   var fails = Number(cache.get(key) || 0);
   if (fails >= 5) throw new Error('Too many wrong attempts. Try again in 10 minutes.');
   var row = findBy_('Users', 'Username', String(username || '').trim(), true);
-  if (!row || String(row.Active) !== 'TRUE' || hash_(String(password || ''), row.Salt) !== row.PasswordHash) {
+  if (!row || String(row.Active).toUpperCase() !== 'TRUE' || !checkPw_(row, password)) {
     cache.put(key, String(fails + 1), 600);
-    if (row && String(row.Active) !== 'TRUE') throw new Error('This account is inactive. Please contact HR.');
+    if (row && String(row.Active).toUpperCase() !== 'TRUE') throw new Error('This account is inactive. Please contact HR.');
     throw new Error('Wrong username or password.');
   }
   cache.remove(key);
   var token = Utilities.getUuid();
   var sess = { username: row.Username, name: row.Name, role: row.Role, employeeId: row.EmployeeID || '',
-               branches: row.Branches || '', email: row.Email || '', mustChange: String(row.MustChange) === 'TRUE' };
+               branches: row.Branches || '', email: row.Email || '', mustChange: String(row.MustChange).toUpperCase() === 'TRUE' };
   cache.put('S_' + token, JSON.stringify(sess), SESSION_HOURS * 3600);
   update_('Users', row._row, { LastLogin: stamp_() });
   audit_(sess, 'LOGIN', 'Users', row.Username, '');
@@ -152,7 +162,7 @@ function me_(u) {
 function changePassword_(u, p) {
   var row = findBy_('Users', 'Username', u.username, true);
   need_(row, 'Account not found.');
-  need_(hash_(String(p.current || ''), row.Salt) === row.PasswordHash, 'Current password is wrong.');
+  need_(checkPw_(row, p.current), 'Current password is wrong.');
   var next = String(p.next || '');
   need_(next.length >= 8, 'New password must be at least 8 characters.');
   need_(next === String(p.confirm || ''), 'New passwords do not match.');
@@ -246,7 +256,9 @@ var ACTIONS = {
   userSave: 'userSave_',
   userResetPassword: 'userResetPassword_',
   roles: function () { return { roles: ROLES.map(function (r) { return { id: r, label: ROLE_LABELS[r] }; }), matrix: ROLE_MATRIX }; },
-  auditList: 'auditList_'
+  auditList: 'auditList_',
+  directoryGet: 'directoryGet_',
+  directoryImport: 'directoryImport_'
 };
 
 function api(token, action, payload) {
@@ -304,7 +316,7 @@ var SCHEMA = {
   Documents: ['DocID', 'EmployeeID', 'EmployeeName', 'DocType', 'FileName', 'FileId', 'IssueDate', 'ExpiryDate', 'UploadedBy', 'UploadedAt', 'Remarks'],
   Requests: ['RequestID', 'EmployeeID', 'EmployeeName', 'Branch', 'Type', 'Details', 'Status', 'HRBy', 'HRNote', 'AttachmentId', 'CreatedAt', 'UpdatedAt'],
   HQs: ['HQ', 'Name', 'Region', 'Head', 'Address', 'Sort'],
-  Branches: ['Branch', 'Code', 'Type', 'HQ', 'Region', 'Address', 'Lat', 'Lng', 'Radius', 'Manager', 'Active'],
+  Branches: ['Branch', 'Code', 'Type', 'HQ', 'Region', 'Address', 'Lat', 'Lng', 'Radius', 'Manager', 'Active', 'Phone', 'Telephone', 'Email', 'DateOpened'],
   Departments: ['Department', 'Head', 'Description', 'Active'],
   Positions: ['Position', 'Department', 'Level', 'Description', 'Active'],
   Holidays: ['Date', 'Name', 'Type'],
@@ -335,6 +347,7 @@ function cell_(v) {
     if (v.getFullYear() < 1901) return Utilities.formatDate(v, TZ, 'HH:mm');   // a time-only cell
     return Utilities.formatDate(v, TZ, hasTime ? 'yyyy-MM-dd HH:mm:ss' : 'yyyy-MM-dd');
   }
+  if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';   // Sheets may turn "TRUE" into a checkbox value
   return v === null || v === undefined ? '' : String(v);
 }
 
@@ -394,6 +407,15 @@ function update_(name, rowNo, patch) {
     if (patch.hasOwnProperty(head[c])) cur[c] = patch[head[c]] === null || patch[head[c]] === undefined ? '' : String(patch[head[c]]);
   }
   sh.getRange(rowNo, 1, 1, head.length).setValues([cur]);
+  delete _cache[name];
+}
+
+/** Appends many row objects in one write (used by the directory import). */
+function appendMany_(name, objs) {
+  if (!objs.length) return;
+  var head = headers_(name), sh = sheet_(name);
+  var vals = objs.map(function (o) { return head.map(function (h) { return o[h] === undefined || o[h] === null ? '' : String(o[h]); }); });
+  sh.getRange(sh.getLastRow() + 1, 1, vals.length, head.length).setNumberFormat('@').setValues(vals);
   delete _cache[name];
 }
 
@@ -581,7 +603,7 @@ var SENSITIVE = ['BirthDate', 'CivilStatus', 'Address', 'EmergencyName', 'Emerge
 
 function fullName_(e) {
   if (!e) return '';
-  return [e.FirstName, e.MiddleName ? e.MiddleName.charAt(0) + '.' : '', e.LastName, e.Suffix].filter(String).join(' ');
+  return [e.FirstName, e.MiddleName ? e.MiddleName.charAt(0) + '.' : '', e.LastName, e.Suffix].filter(function (x) { return x; }).join(' ');
 }
 
 function isActiveEmp_(e) { return ACTIVE_STATUSES.indexOf(e.Status) >= 0; }
@@ -2331,14 +2353,8 @@ function ownerOnly_() {
   if (!active || active !== eff) throw new Error('Run this from the Apps Script editor as the owner of the spreadsheet.');
 }
 
-function setup() {
-  ownerOnly_();
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!ss) throw new Error('Open this script from the HRIS spreadsheet (Extensions → Apps Script).');
-  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
-  ss.setSpreadsheetTimeZone(TZ);
-  _ss = ss;
-
+/** Creates missing tabs and adds missing columns at the end (safe to run any time). */
+function ensureSchema_(ss) {
   Object.keys(SCHEMA).forEach(function (name) {
     var sh = ss.getSheetByName(name) || ss.insertSheet(name);
     var head = SCHEMA[name];
@@ -2350,6 +2366,17 @@ function setup() {
     sh.setFrozenRows(1);
     sh.getRange(1, 1, sh.getMaxRows(), cur.length).setNumberFormat('@');
   });
+  _cache = {};
+}
+
+function setup() {
+  ownerOnly_();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('Open this script from the HRIS spreadsheet (Extensions → Apps Script).');
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', ss.getId());
+  ss.setSpreadsheetTimeZone(TZ);
+  _ss = ss;
+  ensureSchema_(ss);
   var blank = ss.getSheetByName('Sheet1');
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
   _cache = {};
@@ -2382,6 +2409,35 @@ function resetAdminPassword() {
   var msg = 'admin password reset to: ' + DEFAULT_PASSWORD + ' (you will be asked to change it at login).';
   Logger.log(msg);
   return msg;
+}
+
+/**
+ * Can't log in? Run this from the editor and read the Execution log: it checks the spreadsheet,
+ * the Users sheet, the admin row, the default password and the wrong-password lock.
+ */
+function checkLogin() {
+  var out = [];
+  var log = function (m) { out.push(m); Logger.log(m); };
+  var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  log(id ? 'Spreadsheet ID saved by setup(): ' + id : 'PROBLEM: setup() has not been run from this project. Run setup().');
+  try { log('Spreadsheet: ' + ss_().getName()); } catch (e) { log('PROBLEM: cannot open the spreadsheet — ' + e.message); return out.join('\n'); }
+  _cache = {};
+  var users;
+  try { users = table_('Users'); } catch (e) { log('PROBLEM: ' + e.message); return out.join('\n'); }
+  log('Accounts in the Users sheet: ' + users.length + (users.length ? ' (' + users.map(function (u) { return u.Username; }).join(', ') + ')' : ''));
+  var a = findBy_('Users', 'Username', 'admin', true);
+  if (!a) { log('PROBLEM: there is no "admin" row. Run resetAdminPassword() to create it.'); return out.join('\n'); }
+  log('admin → Role: ' + a.Role + ' · Active: ' + a.Active + ' · must change password: ' + a.MustChange);
+  if (String(a.Active).toUpperCase() !== 'TRUE') log('PROBLEM: admin is not active. Run resetAdminPassword().');
+  log(checkPw_(a, DEFAULT_PASSWORD) ? 'OK: the admin password is the default "' + DEFAULT_PASSWORD + '".'
+    : 'NOTE: the admin password is NOT the default (it was changed, or setup ran with older code). Run resetAdminPassword() to set it to "' + DEFAULT_PASSWORD + '".');
+  var fails = Number(CacheService.getScriptCache().get('FAIL_ADMIN') || 0);
+  log(fails >= 5 ? 'PROBLEM: admin is locked for 10 minutes after 5 wrong tries. resetAdminPassword() clears the lock.' : 'Wrong tries recently: ' + fails);
+  var url = '';
+  try { url = ScriptApp.getService().getUrl(); } catch (e) { url = ''; }
+  log(url ? 'Web app URL: ' + url + ' — after pasting new code, use Deploy → Manage deployments → Edit → Version: New version.'
+    : 'PROBLEM: the web app is not deployed yet. Deploy → New deployment → Web app.');
+  return out.join('\n');
 }
 
 function installTriggers() {
@@ -2506,6 +2562,417 @@ function seed_() {
     { Key: 'email_notifications', Value: 'TRUE', Note: 'E-mail approvers and employees at each workflow step' },
     { Key: 'hr_email', Value: '', Note: 'Extra HR mailbox copied on new requests' },
     { Key: 'payroll', Value: JSON.stringify(PAYROLL_DEFAULTS), Note: 'Payroll rates and tables — have Accounting confirm before the first payroll' },
-    { Key: 'payroll_self_approval', Value: 'FALSE', Note: 'TRUE lets the HR Admin who prepared a payroll also approve it' }
+    { Key: 'payroll_self_approval', Value: 'FALSE', Note: 'TRUE lets the HR Admin who prepared a payroll also approve it' },
+    { Key: 'directory_source', Value: DIRECTORY_DEFAULT, Note: 'Link of the RB ABC Directory spreadsheet (Google Sheet or .xlsx) used by Import from directory and the Directory page' }
   ]);
+}
+
+
+/* ================================================================== SECTION: 7. RB ABC Directory import */
+
+/*
+ * Brings the existing "RB ABC - Directory" spreadsheet into the HRIS:
+ *   • people tabs (RB Execom, RB Supply Officer, RB Office Staff, RB Nurses LUZ / VIS / MIN, …) → Employees
+ *   • RB Branches (LUZ / VIS / MIN) → Branches (code, address, phone, e-mail, date opened)
+ *   • RB Managers → each branch's district / branch manager, and Branch Manager accounts
+ *   • every imported employee gets an Employee account with the default password (rbabc@hris),
+ *     which they must change at first login.
+ * It only fills blanks and adds what is missing, so it is safe to run again after the directory changes.
+ * The Directory page also shows the contact tabs (emergency numbers, government offices, runners) live.
+ *
+ * Run importDirectory() from the editor, or use HR Settings → Import from directory.
+ * The source is the "directory_source" setting: a Google Sheets link or ID. An uploaded Excel file
+ * (.xlsx) also works — it is converted to a temporary Google Sheet first (Drive advanced service).
+ */
+
+var DIRECTORY_DEFAULT = 'https://docs.google.com/spreadsheets/d/1PxByKw0MIF5lxVOjvh2OcN9PXOnTTG_U/edit';
+var DIRECTORY_SKIP = /partner|cirquolus|runner|gov|emergency|csr|info|summary|password/i;   // never imported as people
+var DIRECTORY_CONTACT_TABS = /emergency contact|gov|runner/i;                              // shown on the Directory page
+
+function dirNorm_(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9#]/g, ''); }
+function branchKey_(s) {
+  return String(s || '').replace(/^\s*(RB|BR)\s*ABC\s*/i, '').replace(/\s*Inc\.?\s*$/i, '').replace(/\b(city|island|branch)\b/ig, '')
+    .toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+function titleCase_(s) {
+  s = String(s || '').trim().replace(/\s+/g, ' ');
+  if (s !== s.toUpperCase()) return s;          // already mixed case — keep as typed
+  return s.toLowerCase().replace(/(^|[\s\-'.(])([a-zñ])/g, function (m, a, b) { return a + b.toUpperCase(); });
+}
+function phone_(s) {
+  var v = String(s || '').trim();
+  return /^9\d{9}$/.test(v.replace(/\s/g, '')) ? '0' + v.replace(/\s/g, '') : v;
+}
+
+/** 'August 28, 1994' · 'Sep 29, 2026' · '07/2019' · '09/26/25' · '2026-03-15' → 'yyyy-MM-dd' (or '' when unreadable) */
+function anyDate_(s) {
+  var v = String(s || '').trim(), m;
+  if (!v) return '';
+  if ((m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  if ((m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/))) {
+    var y = m[3].length === 2 ? '20' + m[3] : m[3];
+    return y + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+  }
+  if ((m = v.match(/^(\d{1,2})\/(\d{4})$/))) return m[2] + '-' + ('0' + m[1]).slice(-2) + '-01';
+  var t = Date.parse(v.replace(/(\d)(st|nd|rd|th)\b/i, '$1'));
+  if (isNaN(t)) return '';
+  var d = new Date(t);
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+/** 'ABALOS, GABRELLE D.' / 'Jeremiah C. Soquite' / 'de Castro, Rhea Mae Tañega' → { first, middle, last } */
+function splitName_(full) {
+  var s = titleCase_(full).replace(/\s+/g, ' ').trim();
+  var first = '', middle = '', last = '';
+  if (s.indexOf(',') > 0) {
+    last = s.slice(0, s.indexOf(',')).trim();
+    var rest = s.slice(s.indexOf(',') + 1).trim().split(' ');
+    if (rest.length > 1 && /^[A-ZÑ]\.?$/i.test(rest[rest.length - 1])) middle = rest.pop();
+    first = rest.join(' ');
+  } else {
+    var w = s.split(' ');
+    last = w.length > 1 ? w.pop() : '';
+    if (w.length > 1 && /^[A-ZÑ]\.?$/i.test(w[w.length - 1])) middle = w.pop();
+    first = w.join(' ');
+    if (!last) { last = first; first = ''; }
+  }
+  return { first: first, middle: middle, last: last };
+}
+
+function directorySourceId_() {
+  var src = String(setting_('directory_source', DIRECTORY_DEFAULT) || '').trim();
+  var m = src.match(/\/d\/([a-zA-Z0-9_-]{20,})/) || src.match(/^([a-zA-Z0-9_-]{20,})$/);
+  need_(m, 'Set the "directory_source" setting to the link of the RB ABC Directory spreadsheet.');
+  return m[1];
+}
+
+/** Opens the directory. A Google Sheet opens directly; an .xlsx is converted to a Google Sheet copy in "HRIS Files". */
+function openDirectory_(fresh) {
+  var id = directorySourceId_();
+  try { return SpreadsheetApp.openById(id); } catch (e) { /* not a Google Sheet (or no access) — try converting */ }
+  var props = PropertiesService.getScriptProperties();
+  var cached = props.getProperty('DIRECTORY_COPY_' + id);
+  if (cached && !fresh) { try { return SpreadsheetApp.openById(cached); } catch (e) { /* copy deleted */ } }
+  var file;
+  try { file = DriveApp.getFileById(id); }
+  catch (e) { throw new Error('Cannot open the directory file. Make sure the account that deployed the HRIS can open it: ' + setting_('directory_source', DIRECTORY_DEFAULT)); }
+  if (typeof Drive === 'undefined' || !Drive.Files) {
+    throw new Error('The directory is an Excel file (' + file.getName() + '). Open it in Google Sheets → File → Save as Google Sheets, ' +
+      'then put the new link in HR Settings → directory_source.');
+  }
+  var copy = Drive.Files.copy({ name: file.getName().replace(/\.xlsx?$/i, '') + ' (HRIS copy)', mimeType: MimeType.GOOGLE_SHEETS,
+                                parents: [filesFolder_('Directory').getId()] }, id);
+  if (cached) { try { DriveApp.getFileById(cached).setTrashed(true); } catch (e) { /* gone */ } }
+  props.setProperty('DIRECTORY_COPY_' + id, copy.id);
+  return SpreadsheetApp.openById(copy.id);
+}
+
+/** Row index (0-based) of the header row: the first row with NAME / LAST NAME / BRANCH NAME in it. */
+function headerRowOf_(vals) {
+  for (var r = 0; r < Math.min(vals.length, 12); r++) {
+    var row = vals[r].map(dirNorm_);
+    if (row.indexOf('NAME') >= 0 || row.indexOf('LASTNAME') >= 0 || row.indexOf('BRANCHNAME') >= 0 || row.indexOf('MANAGERNAME') >= 0) return r;
+  }
+  return -1;
+}
+
+/** Column finder: first column whose header is one of names (after column `from`). */
+function colOf_(head, names, from) {
+  for (var c = (from || 0); c < head.length; c++) if (names.indexOf(head[c]) >= 0) return c;
+  return -1;
+}
+
+function regionHq_(tab, region) {
+  if (/LUZ/i.test(tab)) return 'PASIG';
+  if (/VIS/i.test(tab)) return 'CEBU';
+  if (/MIN/i.test(tab)) return /XI\b|XII|XIII|caraga|davao|soccsksargen/i.test(region || '') ? 'DAVAO' : 'CDO';
+  return 'CENTRAL';
+}
+
+/** Reads the directory. Returns { people, branches, managers, tabs }. */
+function readDirectory_(book) {
+  var out = { people: [], branches: [], managers: [], tabs: [] };
+  book.getSheets().forEach(function (sh) {
+    var tab = sh.getName();
+    if (sh.getLastRow() < 2) return;
+    var vals = sh.getDataRange().getDisplayValues();
+    var hr = headerRowOf_(vals);
+    if (hr < 0) return;
+    var head = vals[hr].map(dirNorm_);
+    var rows = vals.slice(hr + 1);
+    var at = function (row, c) { return c >= 0 ? String(row[c] || '').trim() : ''; };
+
+    if (head.indexOf('BRANCHNAME') >= 0 && head.indexOf('MANAGERNAME') < 0) {          // RB Branches (LUZ / VIS / MIN)
+      var cb = colOf_(head, ['BRANCHNAME']);
+      rows.forEach(function (r) {
+        var name = at(r, cb);
+        if (!name || /^branch/i.test(name)) return;
+        out.branches.push({ tab: tab, name: name, code: at(r, colOf_(head, ['BRANCHCODE', 'CODE'])), region: at(r, colOf_(head, ['REGION'])),
+          opened: anyDate_(at(r, colOf_(head, ['DATEOPENED']))), phone: phone_(at(r, colOf_(head, ['PHONENUMBER', 'MOBILENUMBER']))),
+          tel: at(r, colOf_(head, ['TELEPHONENUMBER', 'TELNUMBER', 'LANDLINE'])), email: at(r, colOf_(head, ['EMAIL'])),
+          address: at(r, colOf_(head, ['ADDRESS'])) });
+      });
+      out.tabs.push(tab + ': ' + out.branches.filter(function (b) { return b.tab === tab; }).length + ' branch(es)');
+      return;
+    }
+    if (head.indexOf('MANAGERNAME') >= 0) {                                              // RB Managers (merged cells → fill down)
+      var cRole = colOf_(head, ['ROLE']), cMgr = colOf_(head, ['MANAGERNAME']), cBr = colOf_(head, ['BRANCHNAME']), cOic = colOf_(head, ['OICIFANY']);
+      var role = '', mgr = '';
+      rows.forEach(function (r) {
+        if (at(r, cRole)) role = at(r, cRole);
+        if (at(r, cMgr)) mgr = at(r, cMgr);
+        var br = at(r, cBr);
+        if (!br || !mgr) return;
+        mgr.split('/').forEach(function (m) {
+          m = m.trim().replace(/^(dr|dra|mr|ms|mrs)\.?\s+/i, '').trim();
+          if (m) out.managers.push({ name: m, role: role, branch: br, oic: at(r, cOic) });
+        });
+      });
+      out.tabs.push(tab + ': ' + out.managers.length + ' manager-branch link(s)');
+      return;
+    }
+    if (DIRECTORY_SKIP.test(tab) || head.indexOf('POSITION') < 0) return;               // people tabs only
+    var cName = colOf_(head, ['NAME']), cLast = colOf_(head, ['LASTNAME']), cFirst = colOf_(head, ['FIRSTNAME']), cMid = colOf_(head, ['MIDDLENAME']);
+    var cEmName = cName >= 0 ? colOf_(head, ['NAME'], cName + 1) : -1;                  // the second NAME is the emergency contact
+    var cEmContact = colOf_(head, ['CONTACT#', 'CONTACTNUMBER'], cEmName >= 0 ? cEmName : head.length);
+    var n = 0;
+    rows.forEach(function (r) {
+      var nm;
+      if (cLast >= 0 && at(r, cLast)) nm = { first: titleCase_(at(r, cFirst)), middle: titleCase_(at(r, cMid)), last: titleCase_(at(r, cLast)) };
+      else if (at(r, cName)) nm = splitName_(at(r, cName));
+      else return;
+      if (!nm.last && !nm.first) return;
+      var position = at(r, colOf_(head, ['POSITION']));
+      out.people.push({
+        tab: tab, first: nm.first, middle: nm.middle, last: nm.last, gender: titleCase_(at(r, colOf_(head, ['GENDER']))), position: position,
+        branch: at(r, colOf_(head, ['BRANCH'])), contact: phone_(at(r, colOf_(head, ['CONTACTNUMBER']))), email: at(r, colOf_(head, ['EMAIL'])),
+        address: at(r, colOf_(head, ['ADDRESS'])), birth: anyDate_(at(r, colOf_(head, ['BIRTHDATE']))),
+        hired: anyDate_(at(r, colOf_(head, ['DATEOFAPPOINTMENT', 'DATEHIRED']))), number: at(r, colOf_(head, ['EMPLOYEENUMBER', 'IDNUMBER'])),
+        tin: at(r, colOf_(head, ['TIN'])), sss: at(r, colOf_(head, ['SSS'])), philhealth: at(r, colOf_(head, ['PHILHEALTH'])),
+        pagibig: at(r, colOf_(head, ['PAGIBIG'])), bank: at(r, colOf_(head, ['BANKACCOUNTDETAILS', 'BANKACCOUNTDETAIL', 'BANKACCOUNT'])),
+        resigned: anyDate_(at(r, colOf_(head, ['RESIGNATIONDATE']))), schedule: at(r, colOf_(head, ['DUTYSCHEDULE'])),
+        emName: titleCase_(at(r, cEmName)), emContact: phone_(at(r, cEmContact)), emRel: titleCase_(at(r, colOf_(head, ['RELATIONSHIP']))),
+        remarks: at(r, colOf_(head, ['REMARKS']))
+      });
+      n++;
+    });
+    out.tabs.push(tab + ': ' + n + ' people');
+  });
+  return out;
+}
+
+function uniqueUsername_(first, last, taken) {
+  var base = ((String(first || '').trim().charAt(0) || '') + String(last || first || 'user')).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+  if (base.length < 2) base = 'user' + base;
+  var name = base, i = 2;
+  while (taken[name]) name = base + (i++);
+  taken[name] = 1;
+  return name;
+}
+
+/**
+ * Imports the directory. Options: { accounts: true (create Employee accounts), managers: true (Branch Manager accounts) }.
+ * Returns a summary.
+ */
+function runDirectoryImport_(actor, opt) {
+  opt = opt || {};
+  var createAccounts = opt.accounts !== false, createManagers = opt.managers !== false;
+  ensureSchema_(ss_());
+  var book = openDirectory_(true);
+  var d = readDirectory_(book);
+  need_(d.people.length || d.branches.length, 'No employee or branch tabs were found in "' + book.getName() + '". Check directory_source.');
+  var sum = { source: book.getName(), tabs: d.tabs, branchesAdded: 0, branchesUpdated: 0, added: 0, updated: 0, accounts: 0, managers: 0,
+              skipped: [], password: DEFAULT_PASSWORD };
+  return locked_(function () {
+    /* ---- branches */
+    var bIndex = {};
+    var reindex = function () { bIndex = {}; table_('Branches').forEach(function (b) { bIndex[branchKey_(b.Branch)] = b; }); };
+    reindex();
+    d.branches.forEach(function (x) {
+      var cur = bIndex[branchKey_(x.name)];
+      var patch = { Phone: x.phone, Telephone: x.tel, Email: x.email, DateOpened: x.opened, Address: x.address, Code: x.code };
+      if (cur) {
+        var p2 = {};
+        Object.keys(patch).forEach(function (k) { if (patch[k] && !cur[k]) p2[k] = patch[k]; });
+        if (Object.keys(p2).length) { update_('Branches', cur._row, p2); sum.branchesUpdated++; }
+      } else {
+        var hq = regionHq_(x.tab, x.region);
+        insert_('Branches', Object.assign({ Branch: titleCase_(x.name), Type: 'Branch', HQ: hq, Region: (findBy_('HQs', 'HQ', hq) || {}).Region || '',
+                                            Radius: 150, Active: 'TRUE' }, patch));
+        sum.branchesAdded++;
+      }
+      reindex();
+    });
+    var officeFor = function (p) {
+      var pos = (p.position + ' ' + p.tab).toUpperCase();
+      if (/PASIG|LUZON/.test(pos)) return 'Pasig City HQ';
+      if (/\bCDO\b|CAGAYAN/.test(pos)) return 'CDO HQ';
+      if (/DAVAO/.test(pos)) return 'Davao HQ';
+      if (/SUPPLY/.test(pos) && /CEBU/.test(pos)) return 'Cebu City HQ';
+      return 'Central Office';
+    };
+    var branchFor = function (p) {
+      if (!p.branch) return officeFor(p);
+      var b = bIndex[branchKey_(p.branch)];
+      if (b) return b.Branch;
+      var hq = regionHq_(p.tab, '');
+      var name = titleCase_(p.branch);
+      insert_('Branches', { Branch: name, Type: 'Branch', HQ: hq, Region: (findBy_('HQs', 'HQ', hq) || {}).Region || '', Radius: 150, Active: 'TRUE' });
+      sum.branchesAdded++; reindex();
+      return name;
+    };
+
+    /* ---- managers per branch */
+    var mgrOf = {};
+    d.managers.forEach(function (m) { var b = bIndex[branchKey_(m.branch)]; if (b) (mgrOf[b.Branch] = mgrOf[b.Branch] || []).push(m.name); });
+    Object.keys(mgrOf).forEach(function (b) {
+      var row = findBy_('Branches', 'Branch', b);
+      if (row && !row.Manager) update_('Branches', row._row, { Manager: mgrOf[b].join(' / ') });
+    });
+
+    /* ---- employees (new ones are written in one batch) */
+    var byId = {}, byName = {}, seq = 0, pre = setting_('employee_id_prefix', 'RB-');
+    table_('Employees').forEach(function (e) {
+      byId[String(e.EmployeeID).toUpperCase()] = e; byName[dirNorm_(e.FirstName + e.LastName)] = e;
+      var m = String(e.EmployeeID).match(/(\d+)$/);
+      if (String(e.EmployeeID).indexOf(pre) === 0 && m) seq = Math.max(seq, Number(m[1]));
+    });
+    var newEmps = [], touched = [];
+    d.people.forEach(function (p) {
+      var branch = branchFor(p);
+      var bRow = findBy_('Branches', 'Branch', branch) || {};
+      var dept = /NURSE|MEDICAL|DOCTOR|PHYSICIAN|CLINIC/i.test(p.position) ? 'Nursing / Clinical' : /SUPPLY|PHARMAC/i.test(p.position) ? 'Supply Chain'
+        : /ACCOUNT|FINANCE|BOOKKEEP/i.test(p.position) ? 'Finance & Accounting' : /\bHR\b|HUMAN/i.test(p.position) ? 'Human Resources'
+        : /CSR|CUSTOMER/i.test(p.position) ? 'Customer Service' : /MARKETING|SALES/i.test(p.position) ? 'Sales & Marketing'
+        : /\bIT\b|SYSTEM|DEVELOPER/i.test(p.position) ? 'IT' : /MANAGER|DIRECTOR|OFFICER|CHIEF|HEAD/i.test(p.position) ? 'Operations' : 'Administration';
+      var rec = {
+        LastName: p.last, FirstName: p.first, MiddleName: p.middle, Gender: /^f/i.test(p.gender) ? 'Female' : /^m/i.test(p.gender) ? 'Male' : '',
+        BirthDate: p.birth, Contact: p.contact, Email: /@/.test(p.email) ? p.email : '', Address: p.address,
+        EmergencyName: p.emName, EmergencyRelation: p.emRel, EmergencyContact: p.emContact,
+        Position: titleCase_(p.position), Department: dept, Branch: branch, HQ: bRow.HQ || '', DistrictManager: (mgrOf[branch] || []).join(' / '),
+        DateHired: p.hired, EmploymentType: /PROBATION|TRAINEE/i.test(p.position) ? 'Probationary' : /CONTRACT|RELIEVER|PART.?TIME/i.test(p.position) ? 'Contractual' : 'Regular',
+        Status: p.resigned ? 'Resigned' : 'Active', SeparationDate: p.resigned,
+        SSS: p.sss, PhilHealth: p.philhealth, PagIBIG: p.pagibig, TIN: p.tin, BankAccount: p.bank,
+        Remarks: [p.schedule ? 'Duty schedule: ' + p.schedule : '', p.remarks, 'Imported from ' + p.tab].filter(String).join(' · ')
+      };
+      var cur = (p.number && byId[p.number.toUpperCase()]) || byName[dirNorm_(rec.FirstName + rec.LastName)];
+      if (cur) {
+        if (cur._row) {
+          var patch = {};
+          Object.keys(rec).forEach(function (k) { if (rec[k] && !cur[k] && k !== 'Remarks') patch[k] = rec[k]; });
+          if (rec.Status === 'Resigned' && ACTIVE_STATUSES.indexOf(cur.Status) >= 0) { patch.Status = 'Resigned'; patch.SeparationDate = rec.SeparationDate; }
+          if (Object.keys(patch).length) { patch.UpdatedAt = stamp_(); update_('Employees', cur._row, patch); sum.updated++; }
+        }
+        touched.push(cur.EmployeeID);
+        return;
+      }
+      rec.EmployeeID = p.number && !byId[p.number.toUpperCase()] ? p.number : pre + ('0000' + (++seq)).slice(-4);
+      rec.SalaryType = 'Monthly'; rec.CreatedAt = stamp_(); rec.UpdatedAt = stamp_();
+      newEmps.push(rec);
+      byId[String(rec.EmployeeID).toUpperCase()] = rec; byName[dirNorm_(rec.FirstName + rec.LastName)] = rec;
+      touched.push(rec.EmployeeID);
+      sum.added++;
+    });
+    appendMany_('Employees', newEmps);
+
+    /* ---- accounts with the default password (one batch) */
+    var taken = {}, hasAcct = {}, newUsers = [];
+    table_('Users').forEach(function (x) { taken[String(x.Username).toLowerCase()] = 1; if (x.EmployeeID) hasAcct[x.EmployeeID] = x.Username; });
+    var account = function (o) {
+      var salt = newSalt_();
+      o.Active = 'TRUE'; o.MustChange = 'TRUE'; o.Salt = salt; o.PasswordHash = hash_(DEFAULT_PASSWORD, salt); o.CreatedAt = stamp_();
+      newUsers.push(o); if (o.EmployeeID) hasAcct[o.EmployeeID] = o.Username; sum.accounts++;
+    };
+    if (createAccounts) {
+      touched.forEach(function (id) {
+        var e = byId[String(id).toUpperCase()];
+        if (!e || hasAcct[id] || ACTIVE_STATUSES.indexOf(e.Status) < 0) return;
+        account({ Username: uniqueUsername_(e.FirstName, e.LastName, taken), Name: fullName_(e), Email: e.Email, Role: 'EMPLOYEE', EmployeeID: id });
+      });
+    }
+    if (createManagers) {
+      var byMgr = {};
+      d.managers.forEach(function (m) {
+        var b = bIndex[branchKey_(m.branch)]; if (!b) return;
+        var k = dirNorm_(m.name); (byMgr[k] = byMgr[k] || { name: m.name, branches: [] }).branches.push(b.Branch);
+      });
+      var emps = Object.keys(byId).map(function (k) { return byId[k]; });
+      Object.keys(byMgr).forEach(function (k) {
+        var m = byMgr[k], nm = splitName_(m.name.replace(/\s*\(.*\)$/, ''));
+        var emp = emps.filter(function (e) {
+          return dirNorm_(e.FirstName + e.LastName) === dirNorm_(nm.first + nm.last) || dirNorm_(e.FirstName + e.MiddleName + e.LastName) === dirNorm_(m.name) ||
+            (dirNorm_(e.LastName) === dirNorm_(nm.last) && dirNorm_(e.FirstName).slice(0, 4) === dirNorm_(nm.first).slice(0, 4));
+        })[0] || null;
+        var branches = m.branches.filter(function (b, i) { return m.branches.indexOf(b) === i; }).join(', ');
+        var uname = emp ? hasAcct[emp.EmployeeID] : null;
+        var pending = uname ? newUsers.filter(function (x) { return x.Username === uname; })[0] : null;
+        var existing = uname && !pending ? findBy_('Users', 'Username', uname) : (!emp ? findBy_('Users', 'Name', titleCase_(m.name)) : null);
+        if (pending) { pending.Role = 'BRANCH_MANAGER'; pending.Branches = branches; }
+        else if (existing) { if (existing.Role === 'EMPLOYEE' || existing.Role === 'BRANCH_MANAGER') update_('Users', existing._row, { Role: 'BRANCH_MANAGER', Branches: branches }); }
+        else account({ Username: uniqueUsername_(nm.first, nm.last, taken), Name: titleCase_(m.name), Email: emp ? emp.Email : '',
+                       Role: 'BRANCH_MANAGER', EmployeeID: emp ? emp.EmployeeID : '', Branches: branches });
+        sum.managers++;
+      });
+    }
+    appendMany_('Users', newUsers);
+    audit_(actor, 'IMPORT DIRECTORY', 'Employees', sum.source, JSON.stringify({ added: sum.added, updated: sum.updated, accounts: sum.accounts,
+      branchesAdded: sum.branchesAdded, managers: sum.managers }));
+    CacheService.getScriptCache().remove('DIR_CONTACTS');
+    return sum;
+  });
+}
+
+/** Run from the editor (Run ▸ importDirectory). Prints the summary in the Execution log. */
+function importDirectory() {
+  ownerOnly_();
+  _ss = SpreadsheetApp.getActiveSpreadsheet() || ss_();
+  _cache = {};
+  var s = runDirectoryImport_({ username: 'owner', role: 'SUPER_ADMIN', name: 'Owner' }, {});
+  var msg = 'Imported from "' + s.source + '": ' + s.added + ' new employee(s), ' + s.updated + ' updated, ' + s.branchesAdded + ' branch(es) added, ' +
+    s.branchesUpdated + ' updated, ' + s.managers + ' manager(s), ' + s.accounts + ' new account(s) with password ' + s.password + '.\n' + s.tabs.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
+function directoryImport_(u, p) {
+  needSuper_(u);
+  return runDirectoryImport_(u, p || {});
+}
+
+/** Directory page: people, branch contacts, and the contact tabs of the source (emergency, government offices, runners). */
+function directoryGet_(u) {
+  var people = table_('Employees').filter(function (e) { return isActiveEmp_(e); }).map(function (e) {
+    return { EmployeeID: e.EmployeeID, FullName: fullName_(e), Position: e.Position, Branch: e.Branch, HQ: e.HQ, Contact: e.Contact, Email: e.Email,
+             Account: '' };
+  }).sort(function (a, b) { return (a.HQ + a.Branch + a.FullName).localeCompare(b.HQ + b.Branch + b.FullName); });
+  if (isHR_(u)) {
+    var acct = {};
+    table_('Users').forEach(function (x) { if (x.EmployeeID) acct[x.EmployeeID] = x.Username; });
+    people.forEach(function (p) { p.Account = acct[p.EmployeeID] || ''; });
+  }
+  var branches = table_('Branches').filter(function (b) { return String(b.Active).toUpperCase() !== 'FALSE'; }).map(function (b) {
+    return { Branch: b.Branch, Code: b.Code, Type: b.Type, HQ: b.HQ, Phone: b.Phone, Telephone: b.Telephone, Email: b.Email, Address: b.Address,
+             Manager: b.Manager, DateOpened: b.DateOpened };
+  });
+  var contacts = [], err = '';
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get('DIR_CONTACTS');
+  if (hit) contacts = JSON.parse(hit);
+  else {
+    try {
+      openDirectory_(false).getSheets().forEach(function (sh) {
+        if (!DIRECTORY_CONTACT_TABS.test(sh.getName()) || sh.getLastRow() < 2) return;
+        var vals = sh.getDataRange().getDisplayValues().filter(function (r) { return r.join('').trim(); });
+        var hr = 0;
+        for (var r = 0; r < Math.min(vals.length, 6); r++) { if (vals[r].filter(function (c) { return String(c).trim(); }).length >= 2) { hr = r; break; } }
+        var keep = vals[hr].map(function (h, i) { return vals.some(function (row) { return String(row[i] || '').trim(); }) ? i : -1; }).filter(function (i) { return i >= 0; });
+        contacts.push({ tab: sh.getName(), columns: keep.map(function (i) { return vals[hr][i]; }),
+                        rows: vals.slice(hr + 1).map(function (row) { return keep.map(function (i) { return row[i]; }); }) });
+      });
+      try { cache.put('DIR_CONTACTS', JSON.stringify(contacts), 600); } catch (e) { /* too big to cache */ }
+    } catch (e) { err = e.message; }
+  }
+  return { people: people, branches: branches, contacts: contacts, contactsError: err, source: setting_('directory_source', DIRECTORY_DEFAULT),
+           canImport: isSuper_(u) };
 }

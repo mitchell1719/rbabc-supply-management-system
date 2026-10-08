@@ -202,6 +202,7 @@ var ICONS = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
   shield: '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  book: '<path d="M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 17a3 3 0 0 1 3-3h11"/><path d="M8 8h6"/>',
   log: '<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/>'
 };
 function ico(n) { return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[n] || '') + '</svg>'; }
@@ -212,6 +213,7 @@ var NAV = [
   { id: 'dashboard', label: 'Dashboard', icon: 'home', group: 'MAIN MENU', roles: ALL },
   { id: 'profile', label: 'My profile', icon: 'user', group: 'MAIN MENU', roles: ALL, needEmp: true },
   { id: 'employees', label: 'Employees', icon: 'users', group: 'MAIN MENU', roles: MGR },
+  { id: 'directory', label: 'Directory', icon: 'book', group: 'MAIN MENU', roles: ALL },
   { id: 'attendance', label: 'Attendance', icon: 'clock', group: 'MAIN MENU', roles: ALL, badge: 'attendance' },
   { id: 'leave', label: 'Leave Management', icon: 'leave', group: 'MAIN MENU', roles: ALL, badge: 'leave', labels: { EMPLOYEE: 'My leave' } },
   { id: 'overtime', label: 'Overtime', icon: 'ot', group: 'MAIN MENU', roles: ALL, badge: 'overtime', labels: { EMPLOYEE: 'My overtime' } },
@@ -1739,6 +1741,75 @@ function showReport(box, rep) {
   box.scrollIntoView({ behavior: 'smooth' });
 }
 
+/* ------------------------------------------------------------------ directory */
+
+function importDirectoryDialog(after) {
+  modal({
+    title: 'Import from the RB ABC Directory', ok: 'Import now',
+    body: '<p class="sub" style="margin-top:0">Reads the directory spreadsheet set in HR Settings → <b>directory_source</b> and:</p><ul class="sub">' +
+      '<li>adds every person on the people tabs (Execom, Supply Officer, Office Staff, Nurses LUZ / VIS / MIN) as an employee, or fills blanks on existing ones;</li>' +
+      '<li>adds or completes branches (code, address, phone, e-mail, date opened) and each branch\'s manager;</li>' +
+      '<li>creates an account for each active employee — and a Branch Manager account for each manager — with the default password <b>' + h(DEFAULT_PW) + '</b> (changed at first login).</li></ul>' +
+      '<div class="grid2"><label style="display:flex;gap:8px;align-items:center;font-weight:500;color:var(--ink)"><input type="checkbox" name="accounts" checked style="width:auto"> Create employee accounts</label>' +
+      '<label style="display:flex;gap:8px;align-items:center;font-weight:500;color:var(--ink)"><input type="checkbox" name="managers" checked style="width:auto"> Create Branch Manager accounts</label></div>' +
+      '<p class="sub">Safe to run again: existing employees are matched by employee number or name, and only empty fields are filled. It can take a minute.</p>',
+    onOk: function (el) {
+      return api('directoryImport', formData(el)).then(function (r) {
+        S.lookups = null;
+        modal({ title: 'Directory imported', narrow: true, body: '<div class="ok-box">From <b>' + h(r.source) + '</b></div><dl class="kv" style="margin-top:12px">' +
+          '<dt>New employees</dt><dd>' + r.added + '</dd><dt>Employees updated</dt><dd>' + r.updated + '</dd><dt>Branches added / updated</dt><dd>' + r.branchesAdded + ' / ' + r.branchesUpdated + '</dd>' +
+          '<dt>Managers</dt><dd>' + r.managers + '</dd><dt>New accounts</dt><dd>' + r.accounts + ' (password <b>' + h(r.password) + '</b>)</dd></dl>' +
+          '<p class="sub">' + r.tabs.map(h).join('<br>') + '</p><p class="sub">Usernames are first initial + last name (e.g. jsoquite). See User Management.</p>' });
+        if (after) after();
+        return false;
+      });
+    }
+  });
+}
+
+PAGES.directory = function (el) {
+  return api('directoryGet').then(function (d) {
+    var tab = S.dirTab || 'people';
+    var tabs = [{ v: 'people', l: 'People (' + d.people.length + ')' }, { v: 'branches', l: 'Branches (' + d.branches.length + ')' }]
+      .concat(d.contacts.map(function (c, i) { return { v: 'c' + i, l: c.tab }; }));
+    if (!tabs.some(function (t) { return t.v === tab; })) tab = 'people';
+    var q = (S.dirQ || '').toLowerCase();
+    var match = function (o) { return !q || JSON.stringify(o).toLowerCase().indexOf(q) >= 0; };
+    var html = '<div class="pagebar">' + seg(tabs, tab) + '<div class="btns">' +
+      (d.canImport ? '<button class="btn pri" id="imp">Import from directory</button>' : '') + '</div></div>' +
+      '<div class="tools"><input type="search" id="q" placeholder="Search name, position, branch, number…" value="' + h(S.dirQ || '') + '"></div>';
+    if (d.contactsError && d.canImport) html += '<div class="warn-box" style="margin-bottom:10px">Directory contact tabs not shown: ' + h(d.contactsError) + '</div>';
+    if (tab === 'people') {
+      var rows = d.people.filter(match);
+      html += table([{ l: 'Name', f: function (p) { return '<b>' + h(p.FullName) + '</b><small>' + h(p.EmployeeID) + (p.Account ? ' · login: ' + h(p.Account) : '') + '</small>'; } },
+        { k: 'Position', l: 'Position' }, { l: 'Branch', f: function (p) { return h(p.Branch) + '<small>' + h(p.HQ) + '</small>'; } },
+        { l: 'Contact', f: function (p) { return p.Contact ? '<a href="tel:' + h(p.Contact.replace(/\s/g, '')) + '">' + h(p.Contact) + '</a>' : '—'; } },
+        { l: 'E-mail', f: function (p) { return p.Email ? '<a href="mailto:' + h(p.Email) + '">' + h(p.Email) + '</a>' : '—'; } }], rows,
+        { click: isHR() || isMgr(), empty: d.people.length ? 'No match.' : 'No employees yet.' + (d.canImport ? ' Use “Import from directory”.' : '') });
+      el.innerHTML = html;
+      if (isHR() || isMgr()) bindRows(el, rows, function (p) { nav('employee', p.EmployeeID); });
+    } else if (tab === 'branches') {
+      html += table([{ l: 'Branch', f: function (b) { return '<b>' + h(b.Branch) + '</b><small>' + h(b.Code) + (b.Type !== 'Branch' ? ' · ' + h(b.Type) : '') + '</small>'; } },
+        { k: 'HQ', l: 'HQ' }, { l: 'Phone', f: function (b) { return h(b.Phone || '—') + (b.Telephone ? '<small>' + h(b.Telephone) + '</small>' : ''); } },
+        { l: 'E-mail', f: function (b) { return b.Email ? '<a href="mailto:' + h(b.Email) + '">' + h(b.Email) + '</a>' : '—'; } },
+        { l: 'Address', f: function (b) { return '<small>' + h(b.Address) + '</small>'; } }, { k: 'Manager', l: 'Manager' },
+        { l: 'Opened', f: function (b) { return nice(b.DateOpened); } }], d.branches.filter(match));
+      el.innerHTML = html;
+    } else {
+      var c = d.contacts[+tab.slice(1)];
+      var rows2 = c.rows.filter(function (r) { return match(r); });
+      html += '<div class="tbl"><table class="t"><tr>' + c.columns.map(function (x) { return '<th>' + h(x) + '</th>'; }).join('') + '</tr>' +
+        (rows2.length ? rows2.map(function (r) { return '<tr>' + r.map(function (v) { return '<td>' + h(v) + '</td>'; }).join('') + '</tr>'; }).join('')
+          : '<tr><td class="empty" colspan="' + c.columns.length + '">No match.</td></tr>') + '</table></div>';
+      el.innerHTML = html;
+    }
+    on(el, '[data-seg]', function (b) { S.dirTab = b.getAttribute('data-seg'); reload(); });
+    var qi = el.querySelector('#q');
+    qi.oninput = function () { S.dirQ = qi.value; clearTimeout(qi._t); qi._t = setTimeout(function () { reload(); setTimeout(function () { var x = document.getElementById('q'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 500); }, 400); };
+    var imp = el.querySelector('#imp'); if (imp) imp.onclick = function () { importDirectoryDialog(reload); };
+  });
+};
+
 /* ------------------------------------------------------------------ settings */
 
 PAGES.settings = function (el) {
@@ -1751,7 +1822,7 @@ PAGES.settings = function (el) {
         return '<div class="' + (big ? 'span-all' : '') + '"><label>' + h(s.Key) + ' <span class="muted" style="font-weight:400">— ' + h(s.Note) + '</span></label>' +
           (big ? '<textarea data-key="' + h(s.Key) + '" rows="' + Math.min(18, val.split('\n').length + 1) + '" style="font-family:monospace;font-size:12px">' + h(val) + '</textarea>'
             : '<input data-key="' + h(s.Key) + '" value="' + h(val) + '">') + '</div>';
-      }).join('') + '</div><div class="btns end" style="margin-top:14px"><button class="btn pri" id="save">Save settings</button></div></div>';
+      }).join('') + '</div><div class="btns end" style="margin-top:14px"><button class="btn" id="imp">Import from directory…</button><button class="btn pri" id="save">Save settings</button></div></div>';
     el.querySelector('#save').onclick = function () {
       var out = [];
       el.querySelectorAll('[data-key]').forEach(function (i) {
@@ -1761,6 +1832,7 @@ PAGES.settings = function (el) {
       });
       act(this, 'settingsSave', { settings: out });
     };
+    el.querySelector('#imp').onclick = function () { importDirectoryDialog(); };
   });
 };
 
