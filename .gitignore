@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.angular/
+.DS_Store
+.env
+*.local.env
+supabase/.temp/
+supabase/.branches/

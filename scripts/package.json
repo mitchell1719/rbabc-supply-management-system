@@ -1,0 +1,7 @@
+{
+  "name": "rbabc-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": { "create-users": "node create-users.mjs" },
+  "dependencies": { "@supabase/supabase-js": "^2.117.3" }
+}

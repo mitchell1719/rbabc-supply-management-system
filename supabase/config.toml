@@ -1,0 +1,26 @@
+# Supabase CLI project settings (used by `supabase start` / `supabase db reset` locally).
+project_id = "rbabc-supply-management-system"
+
+[api]
+schemas = ["public"]
+
+[db]
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+site_url = "http://localhost:4200"
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
+
+[functions.send-emails]
+verify_jwt = false
+
+[functions.admin-users]
+verify_jwt = false
