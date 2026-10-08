@@ -1,0 +1,646 @@
+<script>
+/* =====================================================================
+ * Pages: dashboard, employees, employee profile, attendance, leave,
+ * overtime, approvals, payroll, payslips
+ * ===================================================================== */
+
+/* ------------------------------------------------------------------ dashboard */
+
+PAGES.dashboard = function (el) {
+  return api('dashboard').then(function (d) {
+    if (d.self) return selfDashboard(el, d);
+    var c = d.cards;
+    var html = '<p class="sub" style="margin:-8px 0 14px">' + h(d.scope) + ' · ' + nice(d.today.date) + (d.today.holiday ? ' · <b>' + h(d.today.holiday) + '</b>' : '') + '</p>' +
+      '<div class="kpis">' +
+        kpi('👥 Total employees', c.total, c.regular + ' regular · ' + c.probationary + ' probationary', 'navy', 'employees') +
+        kpi('🟢 Active employees', c.active, c.present + ' present today', 'green', 'employees') +
+        kpi('🟡 On leave', c.onLeave, 'today', 'amber', 'leave') +
+        kpi('🔴 Absent today', c.absentToday, c.late + ' late', 'red', 'attendance') +
+      '</div><div class="kpis small" style="margin-top:12px">' +
+        kpi('New hires (30 days)', c.newHires, '', 'blue', 'employees') +
+        kpi('Probationary', c.probationary, '', '', 'employees') +
+        kpi('Regular', c.regular, '', '', 'employees') +
+        kpi('Resigned this year', c.resigned, '', '', 'employees') +
+        (c.pendingApplications !== undefined ? kpi('Pending applications', c.pendingApplications, c.openJobs + ' open job(s)', '', 'recruitment') : '') +
+        kpi('Pending leave', c.pendingLeave, 'for your action', c.pendingLeave ? 'amber' : '', 'leave') +
+        kpi('Pending overtime', c.pendingOvertime, 'for your action', c.pendingOvertime ? 'amber' : '', 'overtime') +
+        kpi('Attendance corrections', c.pendingCorrections, 'for your action', c.pendingCorrections ? 'amber' : '', 'attendance') +
+        (c.pendingPayroll !== undefined ? kpi('Pending payroll', c.pendingPayroll, 'not yet released', '', 'payroll') : '') +
+        kpi('Expiring documents', c.expiringDocuments, 'expired or due soon', c.expiringDocuments ? 'red' : '', 'documents') +
+        (c.openRequests !== undefined ? kpi('Open HR requests', c.openRequests, '', '', 'requests') : '') +
+        kpi('🎂 Birthdays today', c.birthdays.length, c.birthdays.join(', ') || '—', '') +
+      '</div>';
+    if (d.payroll) {
+      var p = d.payroll;
+      html += '<div class="section"><h3>Payroll — ' + h(p.Label) + ' ' + chip(p.Status) + '</h3><div class="kpis">' +
+        kpi('Gross payroll', peso(p.Gross), '', 'navy', 'payroll') + kpi('Deductions', peso(p.Deductions), '', '', 'payroll') +
+        kpi('Net payroll', peso(p.Net), '', 'green', 'payroll') + kpi('Employees', p.Employees, p.Processed + ' processed · ' + (p.Employees - p.Processed) + ' pending', '', 'payroll') + '</div></div>';
+    }
+    html += '<div class="section"><h3>Today\'s attendance</h3><div class="kpis small">' +
+      ['Present', 'Late', 'Absent', 'On Leave', 'Rest Day', 'Not yet in'].map(function (k) { return kpi(k, d.today.counts[k] || 0, '', '', 'attendance'); }).join('') + '</div></div>';
+    html += '<div class="section charts">' +
+      '<div class="card"><h4>Employee distribution</h4>' + bars(d.charts.byType) + '</div>' +
+      '<div class="card"><h4>Employees by HQ</h4>' + bars(d.charts.byHQ, '#1e3a8a') + '</div>' +
+      '<div class="card"><h4>Attendance trend (present per day, last 3 weeks)</h4>' + lineChart(d.charts.trend) + '</div>' +
+      (d.charts.pipeline ? '<div class="card"><h4>Hiring pipeline</h4><div class="funnel">' + d.charts.pipeline.map(function (s) {
+        return '<div><b>' + s.value + '</b>' + h(s.label) + '</div>'; }).join('') + '</div></div>'
+        : '<div class="card"><h4>Employees by branch</h4>' + bars(d.charts.byBranch, '#c62828') + '</div>') +
+      '</div>';
+    html += '<div class="section"><h3>🔔 Notifications</h3><div class="card">' + (d.notifications.length ? d.notifications.map(function (n) {
+      return '<div class="nitem ' + n.tone + '" data-go="' + h(n.page) + '"><span class="d"></span><span>' + h(n.text) + '</span></div>';
+    }).join('') : '<div class="muted">Nothing needs your attention.</div>') + '</div></div>';
+    el.innerHTML = html;
+    wireGo(el);
+  });
+};
+
+function selfDashboard(el, d) {
+  var e = d.employee, t = d.todayRow;
+  el.innerHTML = '<div class="profile-head"><span class="avatar">' + h(initials(e.FullName)) + '</span><div><h2 style="font-family:Fraunces,Georgia,serif">Hello, ' +
+    h(e.FirstName) + '</h2><div class="sub">' + h(e.Position) + ' · ' + h(e.Branch) + ' · ' + h(e.EmployeeID) + '</div></div></div>' +
+    '<div class="kpis">' +
+      kpi('Today', t ? (t.TimeOut ? 'Done' : 'Timed in') : 'Not yet in', t ? 'In ' + time12(t.TimeIn) + (t.TimeOut ? ' · Out ' + time12(t.TimeOut) : '') : 'Shift ' + time12(d.shift.start) + '–' + time12(d.shift.end), 'navy', 'attendance') +
+      kpi('Pending leave', d.pending.leave, '', '', 'leave') + kpi('Pending overtime', d.pending.overtime, '', '', 'overtime') +
+      kpi('Open HR requests', d.pending.requests, '', '', 'requests') +
+    '</div>' +
+    '<div class="section"><h3>Leave balance ' + todayIso().slice(0, 4) + '</h3>' + table([
+      { k: 'LeaveType', l: 'Leave type' }, { k: 'Credits', l: 'Credits', num: 1 }, { k: 'Used', l: 'Used', num: 1 }, { k: 'Pending', l: 'Pending', num: 1 },
+      { l: 'Balance', num: 1, f: function (b) { return '<b>' + b.Balance + '</b>'; } }], d.balances.filter(function (b) { return b.Credits || b.Used; })) + '</div>' +
+    (d.payslip ? '<div class="section"><h3>Latest payslip</h3><div class="card btns"><span>' + h(d.payslip.Period.Label) + ' — net <b>' + peso(d.payslip.NetPay) +
+      '</b></span><button class="btn sm" data-go="payslips">Open payslips</button></div></div>' : '') +
+    '<div class="section"><h3>🔔 Notifications</h3><div class="card">' + (d.notifications.length ? d.notifications.map(function (n) {
+      return '<div class="nitem ' + n.tone + '" data-go="' + h(n.page) + '"><span class="d"></span><span>' + h(n.text) + '</span></div>';
+    }).join('') : '<div class="muted">Nothing new.</div>') + '</div></div>';
+  wireGo(el);
+}
+
+/* ------------------------------------------------------------------ employees */
+
+PAGES.employees = function (el) {
+  var f = S.empFilter || (S.empFilter = { q: '', status: 'active', branch: '', type: '' });
+  return lookups().then(function (l) {
+    el.innerHTML = '<div class="tools"><input type="search" id="q" placeholder="Search ID, name, position, branch" value="' + h(f.q) + '">' +
+      '<select id="st">' + opts([{ v: 'active', l: 'Active (incl. on leave)' }, { v: '', l: 'All statuses' }].concat(l.statuses.map(function (s) { return { v: s, l: s }; })), f.status) + '</select>' +
+      '<select id="br">' + branchOpts({ branches: myBranchList(l) }, f.branch, 'All branches') + '</select>' +
+      '<select id="ty">' + opts(l.employmentTypes, f.type, 'All types') + '</select>' +
+      '<button class="btn" id="csv">CSV</button>' + (isHR() ? '<button class="btn pri" id="add">+ New employee</button>' : '') + '</div><div id="list"></div>';
+    var load = function () {
+      f.q = el.querySelector('#q').value; f.status = el.querySelector('#st').value; f.branch = el.querySelector('#br').value; f.type = el.querySelector('#ty').value;
+      el.querySelector('#list').innerHTML = '<div class="empty"><span class="spin"></span></div>';
+      api('employeesList', f).then(function (rows) {
+        S.empRows = rows;
+        el.querySelector('#list').innerHTML = '<p class="sub">' + rows.length + ' employee(s)</p>' + table([
+          { k: 'EmployeeID', l: 'Employee ID', f: function (r) { return '<b>' + h(r.EmployeeID) + '</b>'; } },
+          { l: 'Name', f: function (r) { return h(r.FullName) + '<small>' + h(r.Email || r.Contact || '') + '</small>'; } },
+          { l: 'Position', f: function (r) { return h(r.Position) + '<small>' + h(r.Department) + '</small>'; } },
+          { l: 'Branch', f: function (r) { return h(r.Branch) + '<small>' + h(r.HQ) + '</small>'; } },
+          { l: 'Employment status', f: function (r) { return chip(r.EmploymentType); } },
+          { l: 'Date hired', f: function (r) { return nice(r.DateHired); } },
+          { l: 'Status', f: function (r) { return chip(r.Status); } }], rows, { click: 1, empty: 'No employees match.' });
+        bindRows(el, rows, function (r) { nav('employee', r.EmployeeID); });
+      }).catch(function (e) { el.querySelector('#list').innerHTML = '<div class="err-box">' + h(e.message) + '</div>'; });
+    };
+    el.querySelector('#q').oninput = function () { clearTimeout(load._t); load._t = setTimeout(load, 300); };
+    ['#st', '#br', '#ty'].forEach(function (s) { el.querySelector(s).onchange = load; });
+    el.querySelector('#csv').onclick = function () {
+      var r = S.empRows || [];
+      downloadCsv('employees-' + todayIso(), ['Employee ID', 'Name', 'Position', 'Department', 'Branch', 'HQ', 'Employment type', 'Status', 'Date hired', 'E-mail', 'Contact'],
+        r.map(function (x) { return [x.EmployeeID, x.FullName, x.Position, x.Department, x.Branch, x.HQ, x.EmploymentType, x.Status, x.DateHired, x.Email, x.Contact]; }));
+    };
+    if (isHR()) el.querySelector('#add').onclick = function () { employeeForm(null); };
+    load();
+  });
+};
+
+PAGES.profile = function (el) { return PAGES.employee(el, S.me.employeeId); };
+
+PAGES.employee = function (el, id) {
+  return api('employeeGet', { id: id }).then(function (d) {
+    var e = d.employee, tab = S.empTab || 'info';
+    var kv = function (rows) { return '<dl class="kv">' + rows.map(function (r) { return '<dt>' + h(r[0]) + '</dt><dd>' + (r[2] ? r[1] : h(r[1] || '—')) + '</dd>'; }).join('') + '</dl>'; };
+    var head = '<div class="profile-head"><span class="avatar">' + h(initials(e.FullName)) + '</span><div style="flex:1"><h2>' + h(e.FullName) + '</h2><div class="sub">' +
+      h(e.EmployeeID) + ' · ' + h(e.Position) + ' · ' + h(e.Branch) + ' · ' + chip(e.EmploymentType) + ' ' + chip(e.Status) + '</div></div>' +
+      '<div class="btns no-print">' + (d.canEdit ? '<button class="btn" id="edit">Edit</button><button class="btn" id="status">Change status</button>' : '') +
+      (S.page === 'employee' ? '<button class="btn" id="back">← Back</button>' : '') + '</div></div>';
+    var tabs = seg([{ v: 'info', l: 'Profile' }, { v: 'docs', l: 'Documents (' + d.documents.length + ')' }, { v: 'leave', l: 'Leave' },
+      { v: 'att', l: 'Attendance' }, { v: 'train', l: 'Training (' + d.trainings.length + ')' }, { v: 'eval', l: 'Performance (' + d.evaluations.length + ')' }], tab);
+    var body = '';
+    if (tab === 'info') {
+      body = '<div class="charts"><div class="card"><h4>Personal information</h4>' + kv([['Employee ID', e.EmployeeID], ['Full name', e.FullName], ['Gender', e.Gender],
+          ['Birth date', d.canSeeSensitive ? nice(e.BirthDate) : 'Restricted', 1], ['Civil status', d.canSeeSensitive ? e.CivilStatus : 'Restricted'],
+          ['Contact number', e.Contact], ['E-mail', e.Email], ['Address', d.canSeeSensitive ? e.Address : 'Restricted'],
+          ['Emergency contact', d.canSeeSensitive ? [e.EmergencyName, e.EmergencyRelation, e.EmergencyContact].filter(Boolean).join(' · ') : 'Restricted']]) + '</div>' +
+        '<div class="card"><h4>Employment information</h4>' + kv([['Position', e.Position], ['Department', e.Department], ['Branch', e.Branch], ['HQ', e.HQ],
+          ['District manager', e.DistrictManager], ['Date hired', nice(e.DateHired), 1], ['Employment type', e.EmploymentType], ['Employment status', e.Status],
+          ['Regularization', nice(e.RegularizationDate), 1], ['Contract end', nice(e.ContractEnd), 1],
+          ['Shift', (e.ShiftStart || e.ShiftEnd) ? time12(e.ShiftStart) + '–' + time12(e.ShiftEnd) : 'Default', 1], ['Rest days', e.RestDays || 'Default'],
+          ['Basic salary', d.canSeeSensitive ? (e.BasicSalary ? peso(e.BasicSalary) + ' / ' + (e.SalaryType === 'Daily' ? 'day' : 'month') : '—') : 'Restricted', 1],
+          ['Allowance', d.canSeeSensitive && e.Allowance ? peso(e.Allowance) + ' / month' : '—', 1]].concat(e.SeparationDate ? [['Separated', nice(e.SeparationDate) + (e.SeparationReason ? ' — ' + h(e.SeparationReason) : ''), 1]] : [])) + '</div>' +
+        '<div class="card"><h4>Government information</h4>' + (d.canSeeSensitive ? kv([['SSS', e.SSS], ['PhilHealth', e.PhilHealth], ['Pag-IBIG', e.PagIBIG], ['TIN', e.TIN], ['Bank account', e.BankAccount]])
+          : '<p class="muted">Visible to HR and the employee only.</p>') + '</div>' +
+        '<div class="card"><h4>Leave balance ' + todayIso().slice(0, 4) + '</h4>' + bars(d.balances.filter(function (b) { return b.Credits; }).map(function (b) { return { label: b.LeaveType, value: b.Balance }; }), '#0f7b4b') +
+          (d.account ? '<p class="sub" style="margin-top:12px">Portal account: <b>' + h(d.account.Username) + '</b> (' + h(d.account.Role) + ', ' + (d.account.Active === 'TRUE' ? 'active' : 'inactive') + ')</p>'
+            : d.canEdit ? '<p class="sub" style="margin-top:12px">No portal account yet — create one in User Management (role Employee) to let them log in.</p>' : '') + '</div></div>';
+    } else if (tab === 'docs') {
+      body = '<div class="btns" style="margin-bottom:10px">' + (d.canEdit || e.EmployeeID === S.me.employeeId ? '<button class="btn pri" id="upload">+ Upload document</button>' : '') + '</div>' +
+        docTable(d.documents, d.canEdit);
+    } else if (tab === 'leave') {
+      body = table([{ k: 'ID', l: 'No.' }, { k: 'LeaveType', l: 'Type' }, { l: 'Dates', f: function (r) { return nice(r.StartDate) + ' – ' + nice(r.EndDate); } },
+        { k: 'Days', l: 'Days', num: 1 }, { l: 'Status', f: function (r) { return chip(r.Status); } }, { k: 'Reason', l: 'Reason' }], d.leaves, { empty: 'No leave filed.' });
+    } else if (tab === 'att') {
+      body = table(attCols(false), d.attendance, { empty: 'No attendance yet.' });
+    } else if (tab === 'train') {
+      body = table([{ k: 'Title', l: 'Training' }, { l: 'Date', f: function (r) { return nice(r.Date); } }, { k: 'Trainer', l: 'Trainer' }, { k: 'Location', l: 'Location' },
+        { l: 'Certificate', f: function (r) { return fileLink(r.CertificateId); } }, { l: 'Expiry', f: function (r) { return nice(r.ExpiryDate); } }], d.trainings, { empty: 'No trainings.' });
+    } else {
+      body = evalTable(d.evaluations);
+    }
+    el.innerHTML = head + tabs + body;
+    on(el, '[data-seg]', function (b) { S.empTab = b.getAttribute('data-seg'); reload(); });
+    var b;
+    if ((b = el.querySelector('#back'))) b.onclick = function () { nav('employees'); };
+    if ((b = el.querySelector('#edit'))) b.onclick = function () { employeeForm(e); };
+    if ((b = el.querySelector('#status'))) b.onclick = function () { statusForm(e); };
+    if ((b = el.querySelector('#upload'))) b.onclick = function () { uploadForm(e.EmployeeID); };
+    wireFiles(el); wireDocDelete(el);
+  });
+};
+
+function employeeForm(e) {
+  e = e || { EmploymentType: 'Probationary', Status: 'Active', SalaryType: 'Monthly', DateHired: todayIso() };
+  lookups().then(function (l) {
+    var posList = l.positions.map(function (p) { return p.Position; });
+    modal({
+      title: e.EmployeeID ? 'Edit ' + e.FullName : 'New employee', wide: true, ok: 'Save employee',
+      body: '<h4 style="margin:4px 0 8px">Personal information</h4><div class="grid4">' +
+        (e.EmployeeID ? field('Employee ID', 'EmployeeID', 'text', e.EmployeeID, { attrs: ' readonly' }) : field('Employee ID', 'NewID', 'text', '', { hint: 'blank = next number' })) +
+        field('Last name', 'LastName', 'text', e.LastName) + field('First name', 'FirstName', 'text', e.FirstName) + field('Middle name', 'MiddleName', 'text', e.MiddleName) +
+        field('Suffix', 'Suffix', 'text', e.Suffix) + field('Gender', 'Gender', 'select', e.Gender, { options: ['Female', 'Male'], blank: '—' }) +
+        field('Birth date', 'BirthDate', 'date', e.BirthDate) + field('Civil status', 'CivilStatus', 'select', e.CivilStatus, { options: ['Single', 'Married', 'Widowed', 'Separated'], blank: '—' }) +
+        field('Contact number', 'Contact', 'text', e.Contact) + field('E-mail', 'Email', 'email', e.Email) + field('Address', 'Address', 'text', e.Address, { span: 'span2' }) +
+        field('Emergency contact name', 'EmergencyName', 'text', e.EmergencyName) + field('Relationship', 'EmergencyRelation', 'text', e.EmergencyRelation) +
+        field('Emergency contact no.', 'EmergencyContact', 'text', e.EmergencyContact) + '</div>' +
+        '<h4 style="margin:16px 0 8px">Employment information</h4><div class="grid4">' +
+        field('Position', 'Position', 'select', e.Position, { options: posList.indexOf(e.Position) < 0 && e.Position ? posList.concat([e.Position]) : posList, blank: 'Choose…' }) +
+        field('Department', 'Department', 'select', e.Department, { options: l.departments, blank: '—' }) +
+        '<div><label>Branch / office</label><select name="Branch">' + branchOpts(l, e.Branch, 'Choose…') + '</select></div>' +
+        field('District manager / immediate head', 'DistrictManager', 'text', e.DistrictManager) +
+        field('Date hired', 'DateHired', 'date', e.DateHired) + field('Employment type', 'EmploymentType', 'select', e.EmploymentType, { options: l.employmentTypes }) +
+        field('Status', 'Status', 'select', e.Status, { options: l.statuses }) + field('Regularization date', 'RegularizationDate', 'date', e.RegularizationDate) +
+        field('Contract end', 'ContractEnd', 'date', e.ContractEnd) + field('Shift start', 'ShiftStart', 'time', e.ShiftStart, { hint: 'blank = default' }) +
+        field('Shift end', 'ShiftEnd', 'time', e.ShiftEnd) + field('Rest days', 'RestDays', 'text', e.RestDays, { hint: 'e.g. Sun or Sat, Sun' }) + '</div>' +
+        '<h4 style="margin:16px 0 8px">Compensation & government information <span class="chip bad">confidential</span></h4><div class="grid4">' +
+        field('Salary type', 'SalaryType', 'select', e.SalaryType, { options: ['Monthly', 'Daily'] }) + field('Basic salary', 'BasicSalary', 'number', e.BasicSalary, { hint: 'per month / per day' }) +
+        field('Allowance (per month)', 'Allowance', 'number', e.Allowance) + field('Bank account', 'BankAccount', 'text', e.BankAccount) +
+        field('SSS', 'SSS', 'text', e.SSS) + field('PhilHealth', 'PhilHealth', 'text', e.PhilHealth) + field('Pag-IBIG', 'PagIBIG', 'text', e.PagIBIG) + field('TIN', 'TIN', 'text', e.TIN) +
+        field('Remarks', 'Remarks', 'textarea', e.Remarks, { span: 'span-all' }) + '</div>',
+      onOk: function (el) {
+        var x = formData(el);
+        if (e.EmployeeID) x.EmployeeID = e.EmployeeID;
+        x.SeparationDate = e.SeparationDate || ''; x.SeparationReason = e.SeparationReason || '';
+        return api('employeeSave', { employee: x }).then(function (r) { S.lookups = null; nav('employee', r.id); return r.msg; });
+      }
+    });
+  });
+}
+
+function statusForm(e) {
+  lookups().then(function (l) {
+    modal({
+      title: 'Change status — ' + e.FullName, narrow: true, ok: 'Update status',
+      body: '<div class="grid2" style="grid-template-columns:1fr">' + field('New status', 'status', 'select', e.Status, { options: l.statuses }) +
+        field('Effective / separation date', 'date', 'date', todayIso()) + field('Reason / remarks', 'reason', 'textarea', '') +
+        (e.EmploymentType === 'Probationary' ? '<label style="display:flex;gap:8px;align-items:center;font-weight:500;color:var(--ink)"><input type="checkbox" name="regularize" style="width:auto"> Regularize (Probationary → Regular)</label>' : '') +
+        '<p class="sub" style="margin:0">Separated statuses deactivate the employee\'s portal account.</p></div>',
+      onOk: function (el) { var x = formData(el); x.id = e.EmployeeID; return api('employeeSetStatus', x).then(function (m) { S.lookups = null; reload(); return m; }); }
+    });
+  });
+}
+
+/* ------------------------------------------------------------------ attendance */
+
+function attCols(withEmp) {
+  return [{ l: 'Date', f: function (r) { return nice(r.Date); } }]
+    .concat(withEmp ? [{ l: 'Employee', f: function (r) { return '<b>' + h(r.EmployeeName) + '</b><small>' + h(r.EmployeeID) + '</small>'; } }, { k: 'Branch', l: 'Branch' }] : [])
+    .concat([
+      { l: 'Time in', f: function (r) { return time12(r.TimeIn) + (r.InDistance !== '' && r.InDistance !== undefined ? '<small>' + h(r.InDistance) + ' m</small>' : '') + (r.InSelfie ? fileLink(r.InSelfie, 'selfie') : ''); } },
+      { l: 'Time out', f: function (r) { return (r.TimeOut ? time12(r.TimeOut) : '—') + (r.OutDistance !== '' && r.OutDistance !== undefined ? '<small>' + h(r.OutDistance) + ' m</small>' : '') + (r.OutSelfie ? fileLink(r.OutSelfie, 'selfie') : ''); } },
+      { k: 'Hours', l: 'Hours', num: 1 }, { l: 'Late', num: 1, f: function (r) { return Number(r.LateMins) ? r.LateMins + ' min' : '—'; } },
+      { l: 'Undertime', num: 1, f: function (r) { return Number(r.UndertimeMins) ? r.UndertimeMins + ' min' : '—'; } },
+      { l: 'OT', num: 1, f: function (r) { return Number(r.OTHours) ? r.OTHours + ' h' : '—'; } },
+      { l: 'Status', f: function (r) { return chip(r.Status) + (r.Source && r.Source !== 'Selfie' ? '<small>' + h(r.Source) + '</small>' : ''); } },
+      { l: 'Remarks', f: function (r) { return '<small>' + h(r.Remarks) + '</small>'; } }]);
+}
+
+PAGES.attendance = function (el) {
+  var tabs = [];
+  if (hasEmp()) tabs.push({ v: 'mine', l: 'My time in / out' });
+  if (isHR() || isMgr()) tabs = tabs.concat([{ v: 'today', l: 'Today' }, { v: 'records', l: 'Records' }, { v: 'summary', l: 'Monthly summary' }, { v: 'corrections', l: 'Corrections' }]);
+  var tab = S.attTab && tabs.some(function (t) { return t.v === S.attTab; }) ? S.attTab : tabs[0].v;
+  el.innerHTML = seg(tabs, tab) + '<div id="att"></div>';
+  on(el, '[data-seg]', function (b) { S.attTab = b.getAttribute('data-seg'); reload(); });
+  var box = el.querySelector('#att');
+  return ({ mine: attMine, today: attToday, records: attRecords, summary: attSummary, corrections: attCorrections })[tab](box);
+};
+
+function attMine(box) {
+  return api('attendanceMine').then(function (d) {
+    var t = d.todayRow, next = !t ? 'IN' : !t.TimeOut ? 'OUT' : '';
+    box.innerHTML = '<div class="charts"><div class="card"><div class="sub">' + h(d.branch) + ' · shift ' + time12(d.shift.start) + '–' + time12(d.shift.end) + '</div>' +
+      '<div class="clock" id="clock"></div><div class="sub" id="gps">Getting your location…</div>' +
+      (next ? '<div style="margin-top:12px"><label>Selfie</label><input type="file" id="selfie" accept="image/*" capture="user"><img id="prev" class="selfie hidden" alt="Selfie preview"></div>' +
+        '<button class="btn ' + (next === 'IN' ? 'pri' : 'danger') + ' block" id="log" style="margin-top:12px;padding:12px">TIME ' + next + '</button>'
+        : '<div class="ok-box" style="margin-top:12px">Attendance complete for today: ' + time12(t.TimeIn) + ' – ' + time12(t.TimeOut) + ' (' + h(t.Hours) + ' hrs).</div>') +
+      '</div><div class="card"><h4>Today</h4>' + (t ? '<dl class="kv"><dt>Time in</dt><dd>' + time12(t.TimeIn) + '</dd><dt>Time out</dt><dd>' + (t.TimeOut ? time12(t.TimeOut) : '—') +
+        '</dd><dt>Status</dt><dd>' + chip(t.Status) + '</dd><dt>Late</dt><dd>' + (t.LateMins || 0) + ' min</dd></dl>' : '<p class="muted">No time in yet.</p>') +
+      '<div class="btns" style="margin-top:14px"><button class="btn" id="corr">Request attendance correction</button><button class="btn" id="ot">File overtime</button></div></div></div>' +
+      '<div class="section"><h3>My last 31 days</h3>' + table(attCols(false), d.recent, { empty: 'No attendance yet.' }) + '</div>' +
+      '<div class="section"><h3>My correction requests</h3>' + approvalsTable('correction', d.corrections) + '</div>';
+    var clock = box.querySelector('#clock');
+    var tick = function () { if (!document.body.contains(clock)) return clearInterval(timer); clock.textContent = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Manila' }); };
+    var timer = setInterval(tick, 1000); tick();
+    var pos = null, gps = box.querySelector('#gps');
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function (p) {
+        pos = p.coords;
+        var s = d.site, msg = 'Location found (±' + Math.round(pos.accuracy) + ' m).';
+        if (s && s.Lat !== '' && s.Lng !== '') {
+          var dist = distM(pos.latitude, pos.longitude, +s.Lat, +s.Lng), r = +s.Radius || 150;
+          msg = dist <= r ? '✅ You are at ' + d.branch + ' (' + dist + ' m away).' : '⚠ ' + dist + ' m from ' + d.branch + ' — must be within ' + r + ' m.';
+        } else msg += ' The branch location is not set yet, so it will be recorded as not verified.';
+        gps.textContent = msg;
+      }, function (e) { gps.textContent = e.code === 1 ? 'Location is blocked. Allow location for this page, then reload.' : 'Cannot get your location. Turn on GPS.'; },
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 10000 });
+    } else gps.textContent = 'This device has no location service.';
+    var sel = box.querySelector('#selfie'), shot = null;
+    if (sel) sel.onchange = function () {
+      readFile(sel.files[0], 640).then(function (f) { shot = f; var p = box.querySelector('#prev'); p.src = f.data; p.classList.remove('hidden'); });
+    };
+    var logBtn = box.querySelector('#log');
+    if (logBtn) logBtn.onclick = function () {
+      if (!pos) return toast('Waiting for your location. Turn on GPS and allow location.', true);
+      if (!shot) return toast('Take a selfie first.', true);
+      act(logBtn, 'attendanceLog', { action: next, lat: pos.latitude, lng: pos.longitude, accuracy: pos.accuracy, selfie: shot });
+    };
+    box.querySelector('#corr').onclick = function () { correctionForm(); };
+    box.querySelector('#ot').onclick = function () { overtimeForm(); };
+    wireFiles(box); wireApprovals(box);
+  });
+}
+
+function distM(a, b, c, d) {
+  var R = 6371000, r = Math.PI / 180, x = Math.pow(Math.sin((c - a) * r / 2), 2) + Math.cos(a * r) * Math.cos(c * r) * Math.pow(Math.sin((d - b) * r / 2), 2);
+  return Math.round(2 * R * Math.asin(Math.sqrt(x)));
+}
+
+function attToday(box) {
+  var date = S.attDate || todayIso(), branch = S.attBranch || '';
+  return lookups().then(function (l) {
+    return api('attendanceToday', { date: date, branch: branch }).then(function (d) {
+      var c = d.counts;
+      box.innerHTML = '<div class="tools"><input type="date" id="dt" value="' + date + '"><select id="br">' + branchOpts({ branches: myBranchList(l) }, branch, 'All branches') + '</select>' +
+        (isHR() ? '<button class="btn" id="manual">+ Manual entry</button>' : '') + '</div>' +
+        (d.holiday ? '<div class="info-box" style="margin-bottom:12px">Holiday: ' + h(d.holiday) + '</div>' : '') +
+        '<div class="kpis small">' + ['Present', 'Late', 'Absent', 'On Leave', 'Rest Day', 'Not yet in'].map(function (k) {
+          return kpi(k, c[k] || 0, '', k === 'Absent' ? 'red' : k === 'Late' ? 'amber' : k === 'Present' ? 'green' : ''); }).join('') + '</div>' +
+        '<div class="section">' + table([{ l: 'Employee', f: function (r) { return '<b>' + h(r.FullName) + '</b><small>' + h(r.EmployeeID) + ' · ' + h(r.Position) + '</small>'; } },
+          { k: 'Branch', l: 'Branch' }, { l: 'Time in', f: function (r) { return time12(r.TimeIn) || '—'; } }, { l: 'Time out', f: function (r) { return time12(r.TimeOut) || '—'; } },
+          { k: 'Hours', l: 'Hours', num: 1 }, { l: 'Late', num: 1, f: function (r) { return Number(r.LateMins) ? r.LateMins + ' min' : '—'; } },
+          { l: 'Status', f: function (r) { return chip(r.State); } }, { l: 'Remarks', f: function (r) { return '<small>' + h(r.Remarks) + '</small>'; } }],
+          d.list.sort(function (a, b) { return a.State.localeCompare(b.State) || a.FullName.localeCompare(b.FullName); }), { empty: 'No employees.' }) + '</div>';
+      box.querySelector('#dt').onchange = function () { S.attDate = this.value; reload(); };
+      box.querySelector('#br').onchange = function () { S.attBranch = this.value; reload(); };
+      var m = box.querySelector('#manual'); if (m) m.onclick = manualForm;
+    });
+  });
+}
+
+function attRecords(box) {
+  var f = S.attRec || (S.attRec = { from: addDays(todayIso(), -6), to: todayIso(), branch: '', employeeId: '' });
+  return lookups().then(function (l) {
+    box.innerHTML = '<div class="tools"><input type="date" id="fr" value="' + f.from + '"><input type="date" id="to" value="' + f.to + '">' +
+      '<select id="br">' + branchOpts({ branches: myBranchList(l) }, f.branch, 'All branches') + '</select><select id="em">' + empOpts(l, f.employeeId).replace('Choose employee…', 'All employees') + '</select>' +
+      '<button class="btn pri" id="go">Load</button><button class="btn" id="csv">CSV</button></div><div id="rows"><div class="empty"><span class="spin"></span></div></div>';
+    var load = function () {
+      f.from = box.querySelector('#fr').value; f.to = box.querySelector('#to').value; f.branch = box.querySelector('#br').value; f.employeeId = box.querySelector('#em').value;
+      return api('attendanceList', f).then(function (rows) {
+        S.attRows = rows;
+        box.querySelector('#rows').innerHTML = '<p class="sub">' + rows.length + ' record(s)</p>' + table(attCols(true), rows, { empty: 'No attendance in this range.' });
+        wireFiles(box);
+      }).catch(function (e) { box.querySelector('#rows').innerHTML = '<div class="err-box">' + h(e.message) + '</div>'; });
+    };
+    box.querySelector('#go').onclick = load;
+    box.querySelector('#csv').onclick = function () {
+      downloadCsv('attendance-' + f.from + '-to-' + f.to, ['Date', 'Employee ID', 'Name', 'Branch', 'Time in', 'Time out', 'Hours', 'Late (min)', 'Undertime (min)', 'OT (h)', 'Status', 'Source', 'Remarks'],
+        (S.attRows || []).map(function (r) { return [r.Date, r.EmployeeID, r.EmployeeName, r.Branch, r.TimeIn, r.TimeOut, r.Hours, r.LateMins, r.UndertimeMins, r.OTHours, r.Status, r.Source, r.Remarks]; }));
+    };
+    return load();
+  });
+}
+
+function attSummary(box) {
+  var month = S.attMonth || todayIso().slice(0, 7);
+  return api('attendanceSummary', { month: month }).then(function (d) {
+    box.innerHTML = '<div class="tools"><input type="month" id="mo" value="' + month + '"><button class="btn" id="csv">CSV</button></div>' +
+      table([{ l: 'Employee', f: function (r) { return '<b>' + h(r.FullName) + '</b><small>' + h(r.EmployeeID) + '</small>'; } }, { k: 'Branch', l: 'Branch' },
+        { k: 'WorkDays', l: 'Work days', num: 1 }, { k: 'Present', l: 'Present', num: 1 }, { k: 'Late', l: 'Late', num: 1 }, { k: 'LateMins', l: 'Late min', num: 1 },
+        { k: 'UndertimeMins', l: 'Undertime min', num: 1 }, { l: 'Absent', num: 1, f: function (r) { return r.Absent ? '<b style="color:var(--bad)">' + r.Absent + '</b>' : 0; } },
+        { k: 'Leave', l: 'Leave', num: 1 }, { k: 'Incomplete', l: 'No time out', num: 1 }, { k: 'Hours', l: 'Hours', num: 1 }, { k: 'OTHours', l: 'Beyond shift (h)', num: 1 }], d.rows);
+    box.querySelector('#mo').onchange = function () { S.attMonth = this.value; reload(); };
+    box.querySelector('#csv').onclick = function () {
+      downloadCsv('attendance-summary-' + month, ['Employee ID', 'Name', 'Branch', 'Work days', 'Present', 'Late', 'Late min', 'Undertime min', 'Absent', 'Leave', 'No time out', 'Hours', 'Beyond shift (h)'],
+        d.rows.map(function (r) { return [r.EmployeeID, r.FullName, r.Branch, r.WorkDays, r.Present, r.Late, r.LateMins, r.UndertimeMins, r.Absent, r.Leave, r.Incomplete, r.Hours, r.OTHours]; }));
+    };
+  });
+}
+
+function attCorrections(box) {
+  return approvalsPage(box, 'correction', 'correctionsList', correctionForm);
+}
+
+function manualForm() {
+  lookups().then(function (l) {
+    modal({
+      title: 'Manual attendance entry', ok: 'Save',
+      body: '<div class="grid2"><div class="span-all"><label>Employee</label><select name="employeeId">' + empOpts(l) + '</select></div>' +
+        field('Date', 'date', 'date', todayIso()) + '<div></div>' + field('Time in', 'timeIn', 'time', '08:00') + field('Time out', 'timeOut', 'time', '') +
+        field('Remarks', 'remarks', 'textarea', '', { span: 'span-all' }) + '</div><p class="sub">Replaces the employee\'s record for that day.</p>',
+      onOk: function (el) { return api('attendanceManual', formData(el)).then(function (m) { reload(); return m; }); }
+    });
+  });
+}
+
+function correctionForm() {
+  lookups().then(function (l) {
+    modal({
+      title: 'Attendance correction request', ok: 'Submit',
+      body: '<div class="grid2">' + ((isHR() || isMgr()) ? '<div class="span-all"><label>Employee</label><select name="employeeId">' + empOpts(l, S.me.employeeId) + '</select></div>' : '') +
+        field('Date', 'date', 'date', todayIso()) + '<div></div>' + field('Correct time in', 'timeIn', 'time', '') + field('Correct time out', 'timeOut', 'time', '') +
+        field('Reason', 'reason', 'textarea', '', { span: 'span-all' }) + '</div>',
+      onOk: function (el) { return api('correctionSubmit', formData(el)).then(function (m) { refreshNotifs(); reload(); return m; }); }
+    });
+  });
+}
+
+/* ------------------------------------------------------------------ approvals (leave, overtime, corrections) */
+
+var KIND = {
+  leave: { list: 'leaveList', label: 'leave' },
+  overtime: { list: 'overtimeList', label: 'overtime' },
+  correction: { list: 'correctionsList', label: 'correction' }
+};
+
+function approvalsTable(kind, rows) {
+  var cols = [{ l: 'No.', f: function (r) { return '<b>' + h(r.ID) + '</b><small>' + nice(r.CreatedAt) + '</small>'; } },
+    { l: 'Employee', f: function (r) { return h(r.EmployeeName) + '<small>' + h(r.Branch) + '</small>'; } }];
+  if (kind === 'leave') cols = cols.concat([{ k: 'LeaveType', l: 'Type' }, { l: 'Dates', f: function (r) { return nice(r.StartDate) + (r.EndDate !== r.StartDate ? ' – ' + nice(r.EndDate) : ''); } },
+    { k: 'Days', l: 'Days', num: 1 }]);
+  if (kind === 'overtime') cols = cols.concat([{ l: 'Date', f: function (r) { return nice(r.Date); } }, { l: 'Time', f: function (r) { return time12(r.StartTime) + '–' + time12(r.EndTime); } },
+    { k: 'Hours', l: 'Hours', num: 1 }]);
+  if (kind === 'correction') cols = cols.concat([{ l: 'Date', f: function (r) { return nice(r.Date); } }, { l: 'Correct time', f: function (r) { return time12(r.TimeIn) + '–' + (time12(r.TimeOut) || '?'); } }]);
+  cols = cols.concat([
+    { l: 'Reason', f: function (r) { return h(r.Reason) + (r.AttachmentId ? '<small>' + fileLink(r.AttachmentId, 'attachment') + '</small>' : ''); } },
+    { l: 'Status', f: function (r) {
+      return chip(r.Status) + (r.ManagerBy ? '<small>Manager: ' + h(r.ManagerBy) + (r.ManagerNote ? ' — ' + h(r.ManagerNote) : '') + '</small>' : '') +
+        (r.HRBy ? '<small>HR: ' + h(r.HRBy) + (r.HRNote ? ' — ' + h(r.HRNote) : '') + '</small>' : '') + (r.PayrollPeriod ? '<small>Paid in ' + h(r.PayrollPeriod) + '</small>' : '');
+    } },
+    { l: '', f: function (r) {
+      return '<div class="btns">' + (r.canAct ? '<button class="btn sm ok" data-ap="' + h(r.ID) + '" data-k="' + kind + '">Approve</button><button class="btn sm outline-red" data-rj="' + h(r.ID) + '" data-k="' + kind + '">Reject</button>' : '') +
+        (r.canCancel && !r.canAct ? '<button class="btn sm" data-cn="' + h(r.ID) + '" data-k="' + kind + '">Cancel</button>' : '') + '</div>';
+    } }]);
+  return table(cols, rows, { empty: 'No requests.' });
+}
+
+function wireApprovals(el) {
+  on(el, '[data-ap]', function (b) {
+    promptBox('Approve ' + b.getAttribute('data-ap'), 'Note (optional)', false).then(function (note) {
+      if (note === null) return; act(b, 'approve', { kind: b.getAttribute('data-k'), id: b.getAttribute('data-ap'), decision: 'approve', note: note });
+    });
+  });
+  on(el, '[data-rj]', function (b) {
+    promptBox('Reject ' + b.getAttribute('data-rj'), 'Reason for rejecting', true).then(function (note) {
+      if (note === null) return; act(b, 'approve', { kind: b.getAttribute('data-k'), id: b.getAttribute('data-rj'), decision: 'reject', note: note });
+    });
+  });
+  on(el, '[data-cn]', function (b) {
+    confirmBox('Cancel request', 'Cancel ' + h(b.getAttribute('data-cn')) + '?', 'Cancel request', true).then(function (ok) {
+      if (ok) act(b, 'cancelRequest', { kind: b.getAttribute('data-k'), id: b.getAttribute('data-cn') });
+    });
+  });
+}
+
+function approvalsPage(box, kind, listAction, newForm, extra) {
+  var key = 'ap_' + kind;
+  var tabs = [];
+  if (isHR() || isMgr()) tabs.push({ v: 'action', l: 'For my action' });
+  if (hasEmp()) tabs.push({ v: 'mine', l: 'My requests' });
+  if (isHR() || isMgr()) tabs = tabs.concat([{ v: 'pending', l: 'All pending' }, { v: 'Approved', l: 'Approved' }, { v: 'Rejected', l: 'Rejected' }, { v: '', l: 'All' }]);
+  var st = S[key] !== undefined && tabs.some(function (t) { return t.v === S[key]; }) ? S[key] : tabs[0].v;
+  return api(listAction, { status: st }).then(function (rows) {
+    box.innerHTML = '<div class="pagebar">' + seg(tabs, st) + '<div class="btns">' + (extra || '') + (newForm ? '<button class="btn pri" id="new">+ New request</button>' : '') + '</div></div>' +
+      approvalsTable(kind, rows);
+    on(box, '[data-seg]', function (b) { S[key] = b.getAttribute('data-seg'); reload(); });
+    var n = box.querySelector('#new'); if (n) n.onclick = function () { newForm(); };
+    wireApprovals(box); wireFiles(box);
+    return rows;
+  });
+}
+
+/* ------------------------------------------------------------------ leave */
+
+PAGES.leave = function (el) {
+  var tab = S.leaveTab || 'requests';
+  var tabs = [{ v: 'requests', l: 'Requests' }, { v: 'balances', l: 'Balances' }];
+  el.innerHTML = seg(tabs, tab) + '<div id="lv"></div>';
+  on(el, '[data-seg]', function (b) { S.leaveTab = b.getAttribute('data-seg'); reload(); });
+  var box = el.querySelector('#lv');
+  if (tab === 'requests') {
+    return approvalsPage(box, 'leave', 'leaveList', leaveForm).then(function () {
+      box.insertAdjacentHTML('afterbegin', '<p class="sub" style="margin:0 0 10px">Employee → Branch Manager → HR → Approved / Rejected. Rest days and holidays are not counted.</p>');
+    });
+  }
+  return api('leaveBalances', { year: todayIso().slice(0, 4) }).then(function (rows) {
+    var types = rows.length ? rows[0].balances.map(function (b) { return b.LeaveType; }) : [];
+    box.innerHTML = '<p class="sub">Balance / credits for ' + todayIso().slice(0, 4) + '.' + (isHR() ? ' Click an employee to set their credits.' : '') + '</p>' +
+      table([{ l: 'Employee', f: function (r) { return '<b>' + h(r.FullName) + '</b><small>' + h(r.EmployeeID) + ' · ' + h(r.Branch) + '</small>'; } }].concat(types.map(function (t, i) {
+        return { l: t.replace(' Leave', ''), num: 1, f: function (r) { var b = r.balances[i]; return '<b>' + b.Balance + '</b><small>of ' + b.Credits + (b.Pending ? ' · ' + b.Pending + ' pending' : '') + '</small>'; } };
+      })), rows, { click: isHR(), empty: 'No employees.' });
+    if (isHR()) bindRows(box, rows, creditsForm);
+  });
+};
+
+function leaveForm() {
+  lookups().then(function (l) {
+    modal({
+      title: 'Leave request', ok: 'Submit leave',
+      body: '<div class="grid2">' + ((isHR() || isMgr()) ? '<div class="span-all"><label>Employee</label><select name="employeeId">' + empOpts(l, S.me.employeeId) + '</select></div>' : '') +
+        field('Leave type', 'type', 'select', 'Vacation Leave', { options: l.leaveTypes }) +
+        '<div><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;font-weight:500;color:var(--ink)"><input type="checkbox" name="halfDay" style="width:auto"> Half day (one-day leave only)</label></div>' +
+        field('Start date', 'start', 'date', todayIso()) + field('End date', 'end', 'date', todayIso()) +
+        field('Reason', 'reason', 'textarea', '', { span: 'span-all' }) + field('Attachment (medical certificate, etc.)', 'attachment', 'file', '', { span: 'span-all', accept: 'image/*,application/pdf' }) +
+        '</div>',
+      onOk: function (el) {
+        var x = formData(el);
+        return readFile(x.attachment).then(function (f) { x.attachment = f; return api('leaveSubmit', x); }).then(function (m) { refreshNotifs(); reload(); return m; });
+      }
+    });
+  });
+}
+
+function creditsForm(r) {
+  modal({
+    title: 'Leave credits ' + todayIso().slice(0, 4) + ' — ' + r.FullName, ok: 'Save credits',
+    body: '<div class="grid3">' + r.balances.map(function (b) { return field(b.LeaveType + ' (used ' + b.Used + ')', b.LeaveType, 'number', b.Credits); }).join('') + '</div>',
+    onOk: function (el) {
+      var credits = {}; el.querySelectorAll('[name]').forEach(function (i) { credits[i.name] = i.value; });
+      return api('leaveCreditsSave', { employeeId: r.EmployeeID, year: todayIso().slice(0, 4), credits: credits }).then(function (m) { reload(); return m; });
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ overtime */
+
+PAGES.overtime = function (el) {
+  el.innerHTML = '<p class="sub" style="margin:0 0 10px">Employee → Supervisor / Manager → HR → Approved → included in the payroll of the period.</p><div id="ot"></div>';
+  return approvalsPage(el.querySelector('#ot'), 'overtime', 'overtimeList', overtimeForm);
+};
+
+function overtimeForm() {
+  lookups().then(function (l) {
+    modal({
+      title: 'Overtime request', ok: 'Submit overtime',
+      body: '<div class="grid2">' + ((isHR() || isMgr()) ? '<div class="span-all"><label>Employee</label><select name="employeeId">' + empOpts(l, S.me.employeeId) + '</select></div>' : '') +
+        field('Date', 'date', 'date', todayIso()) + '<div></div>' + field('Start time', 'start', 'time', l.shift.end) + field('End time', 'end', 'time', '') +
+        field('Reason', 'reason', 'textarea', '', { span: 'span-all' }) + '</div>',
+      onOk: function (el) { return api('overtimeSubmit', formData(el)).then(function (m) { refreshNotifs(); reload(); return m; }); }
+    });
+  });
+}
+
+/* ------------------------------------------------------------------ payroll */
+
+PAGES.payroll = function (el, periodId) {
+  return api('payrollPeriods').then(function (periods) {
+    if (!periodId && S.payPeriod && periods.some(function (p) { return p.PeriodID === S.payPeriod; })) periodId = S.payPeriod;
+    if (!periodId && periods.length) periodId = periods[0].PeriodID;
+    S.payPeriod = periodId;
+    el.innerHTML = '<div class="pagebar"><div class="tools" style="margin:0"><select id="per">' + opts(periods.map(function (p) { return { v: p.PeriodID, l: p.Label + ' — ' + p.Status }; }), periodId, periods.length ? undefined : 'No payroll periods yet') + '</select></div>' +
+      (isHR() ? '<button class="btn pri" id="newp">+ New payroll period</button>' : '') + '</div><div id="pay"></div>';
+    el.querySelector('#per').onchange = function () { S.payPeriod = this.value; reload(); };
+    var np = el.querySelector('#newp'); if (np) np.onclick = periodForm;
+    if (!periodId) { el.querySelector('#pay').innerHTML = '<div class="empty">Create the first payroll period (e.g. ' + h(todayIso().slice(0, 8)) + '01–15).</div>'; return; }
+    var per = periods.filter(function (p) { return p.PeriodID === periodId; })[0];
+    return api('payrollLines', { periodId: periodId }).then(function (d) { payrollView(el.querySelector('#pay'), per, d); });
+  });
+};
+
+function payrollView(box, per, d) {
+  var p = d.period, lines = d.lines;
+  var html = '';
+  if (!d.limited) {
+    html += '<div class="kpis">' + kpi('Gross payroll', peso(per.Gross), p.Label, 'navy') + kpi('Deductions', peso(per.Deductions), 'SSS · PhilHealth · Pag-IBIG · tax · others') +
+      kpi('Net payroll', peso(per.Net), 'pay date ' + nice(p.PayDate), 'green') + kpi('Employees', lines.length, per.Processed + ' processed · ' + (lines.length - per.Processed) + ' pending') + '</div>';
+    html += '<div class="btns" style="margin:14px 0">' + chip(p.Status) +
+      (p.Status === 'Draft' ? '<button class="btn pri" data-pa="generate">' + (lines.length ? 'Re-generate' : 'Generate payroll') + '</button>' +
+        (lines.length ? '<button class="btn" data-pa="processAll">Mark all processed</button><button class="btn ok" data-pa="submit">Submit for approval</button>' : '') : '') +
+      (p.Status === 'For Approval' ? '<button class="btn ok" data-pa="approve">Approve</button><button class="btn outline-red" data-pa="return">Return to draft</button>' : '') +
+      (p.Status === 'Approved' ? '<button class="btn ok" data-pa="release">Release payslips</button>' + (S.me.role === 'SUPER_ADMIN' ? '<button class="btn outline-red" data-pa="return">Return to draft</button>' : '') : '') +
+      '<button class="btn" data-pa="csv">Payroll register (CSV)</button><button class="btn" data-pa="print">Print register</button></div>' +
+      (p.ApprovedBy ? '<p class="sub">Approved by ' + h(p.ApprovedBy) + ' · ' + h(p.ApprovedAt) + (p.ReleasedAt ? ' · released ' + h(p.ReleasedAt) : '') + '</p>' : '') +
+      (p.Status === 'Draft' ? '<p class="sub">Generate builds each line from the salary, attendance (absences, late / undertime), approved leave, approved overtime and holidays. Click a line to adjust night differential, allowances, other deductions, etc. Rates are in HR Settings → payroll.</p>' : '');
+    html += table([
+      { l: 'Employee', f: function (r) { return '<b>' + h(r.EmployeeName) + '</b><small>' + h(r.EmployeeID) + ' · ' + h(r.Branch) + '</small>'; } },
+      { l: 'Rate', f: function (r) { return peso(r.BasicSalary) + '<small>' + h(r.SalaryType) + ' · daily ' + money(r.DailyRate) + '</small>'; } },
+      { l: 'Days', num: 1, f: function (r) { return r.DaysWorked + '/' + r.WorkDays + (Number(r.LeaveDays) ? '<small>+' + r.LeaveDays + ' leave</small>' : '') + (Number(r.AbsentDays) ? '<small style="color:var(--bad)">' + r.AbsentDays + ' absent</small>' : ''); } },
+      { l: 'Basic', num: 1, f: function (r) { return money(r.BasicPay); } },
+      { l: 'OT', num: 1, f: function (r) { return Number(r.OTPay) ? money(r.OTPay) + '<small>' + r.OTHours + ' h</small>' : '—'; } },
+      { l: 'Holiday / ND / allow.', num: 1, f: function (r) { return money(Number(r.HolidayPay) + Number(r.NightDiff) + Number(r.Allowances)); } },
+      { l: 'Absent / late', num: 1, f: function (r) { var v = Number(r.AbsenceDeduction) + Number(r.LateDeduction); return v ? '−' + money(v) : '—'; } },
+      { l: 'Gross', num: 1, f: function (r) { return '<b>' + money(r.GrossPay) + '</b>'; } },
+      { l: 'Gov. + tax', num: 1, f: function (r) { return money(Number(r.SSS) + Number(r.PhilHealth) + Number(r.PagIBIG) + Number(r.Tax)) + '<small>SSS ' + money(r.SSS) + ' · PH ' + money(r.PhilHealth) + ' · HDMF ' + money(r.PagIBIG) + ' · tax ' + money(r.Tax) + '</small>'; } },
+      { l: 'Other ded.', num: 1, f: function (r) { return Number(r.OtherDeductions) ? money(r.OtherDeductions) : '—'; } },
+      { l: 'Net pay', num: 1, f: function (r) { return '<b>' + peso(r.NetPay) + '</b>'; } },
+      { l: 'Status', f: function (r) { return chip(r.Status) + (r.Remarks ? '<small>' + h(r.Remarks) + '</small>' : ''); } }], lines, { click: 1, empty: 'Not generated yet.' });
+  } else {
+    html += '<div class="info-box" style="margin-bottom:12px">Branch view: attendance figures used for the payroll of your branches. Amounts are visible to HR only.</div>' +
+      table([{ l: 'Employee', f: function (r) { return '<b>' + h(r.EmployeeName) + '</b><small>' + h(r.EmployeeID) + ' · ' + h(r.Position) + '</small>'; } }, { k: 'Branch', l: 'Branch' },
+        { k: 'WorkDays', l: 'Work days', num: 1 }, { k: 'DaysWorked', l: 'Worked', num: 1 }, { k: 'LeaveDays', l: 'Leave', num: 1 }, { k: 'AbsentDays', l: 'Absent', num: 1 },
+        { k: 'LateMins', l: 'Late/UT min', num: 1 }, { k: 'OTHours', l: 'OT h', num: 1 }, { l: 'Status', f: function (r) { return chip(r.Status); } }], lines, { empty: 'Not generated yet.' });
+  }
+  box.innerHTML = html;
+  if (d.limited) return;
+  bindRows(box, lines, function (r) { payslipModal(r, p, d.editable); });
+  on(box, '[data-pa]', function (b) {
+    var a = b.getAttribute('data-pa');
+    if (a === 'generate') return confirmBox('Generate payroll', 'Build the payroll for <b>' + h(p.Label) + '</b> from the current salaries, attendance, leave and overtime? Manual night differential, other deductions and remarks are kept.', 'Generate')
+      .then(function (ok) { if (ok) act(b, 'payrollGenerate', { periodId: p.PeriodID }); });
+    if (a === 'processAll') return act(b, 'payrollLineSave', { periodId: p.PeriodID, processAll: true });
+    if (a === 'csv' || a === 'print') return api('report', { type: 'payrollRegister', periodId: p.PeriodID }).then(function (r) {
+      if (a === 'csv') downloadCsv(r.title + ' ' + p.Label, r.columns, r.rows); else printReport(r);
+    }).catch(function (e) { toast(e.message, true); });
+    if (a === 'return') return promptBox('Return to draft', 'Reason', true).then(function (note) { if (note !== null) act(b, 'payrollSetStatus', { periodId: p.PeriodID, action: 'return', note: note }); });
+    var words = { submit: 'Submit this payroll for approval?', approve: 'Approve the payroll of <b>' + h(p.Label) + '</b> (net ' + peso(per.Net) + ')?', release: 'Release the payslips? Employees will see them and get an e-mail. Approved overtime gets tagged to this period.' };
+    confirmBox('Payroll', words[a], a.charAt(0).toUpperCase() + a.slice(1)).then(function (ok) { if (ok) act(b, 'payrollSetStatus', { periodId: p.PeriodID, action: a }); });
+  });
+}
+
+function periodForm() {
+  var t = todayIso(), first = Number(t.slice(8)) <= 15;
+  var start = t.slice(0, 8) + (first ? '01' : '16');
+  var end = first ? t.slice(0, 8) + '15' : (function () { var d = new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)), 0); return t.slice(0, 8) + String(d.getDate()).padStart(2, '0'); })();
+  modal({
+    title: 'New payroll period', narrow: true, ok: 'Create period',
+    body: '<div class="grid2">' + field('Start', 'start', 'date', start) + field('End', 'end', 'date', end) + field('Pay date', 'payDate', 'date', end) +
+      field('Label', 'label', 'text', '', { hint: 'optional' }) + '</div>',
+    onOk: function (el) { return api('payrollPeriodCreate', formData(el)).then(function (r) { S.payPeriod = r.id; reload(); return r.msg; }); }
+  });
+}
+
+function payslipHtml(r, p) {
+  var row = function (a, b, cls) { return '<tr class="' + (cls || '') + '"><td>' + h(a) + '</td><td class="num">' + money(b) + '</td></tr>'; };
+  return '<div class="head"><div><h1>' + h(S.me.company) + '</h1><h2>PAYSLIP — ' + h(p.Label) + '</h2></div><div style="text-align:right">Pay date: ' + nice(p.PayDate) + '<br>' + h(r.PeriodID) + '</div></div>' +
+    '<table><tr><th>Employee</th><td>' + h(r.EmployeeName) + ' (' + h(r.EmployeeID) + ')</td><th>Branch</th><td>' + h(r.Branch) + '</td></tr>' +
+    '<tr><th>Position</th><td>' + h(r.Position) + '</td><th>Rate</th><td>' + money(r.BasicSalary) + ' / ' + (r.SalaryType === 'Daily' ? 'day' : 'month') + ' · daily ' + money(r.DailyRate) + ' · hourly ' + money(r.HourlyRate) + '</td></tr>' +
+    '<tr><th>Days worked</th><td>' + h(r.DaysWorked) + ' of ' + h(r.WorkDays) + (Number(r.LeaveDays) ? ' + ' + h(r.LeaveDays) + ' paid leave' : '') + '</td><th>Absent / late</th><td>' + h(r.AbsentDays) + ' day(s) · ' + h(r.LateMins) + ' min</td></tr></table>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:12px"><table><tr><th>Earnings</th><th class="num">Amount</th></tr>' +
+    row('Basic pay', r.BasicPay) + row('Overtime (' + r.OTHours + ' h)', r.OTPay) + row('Holiday pay', r.HolidayPay) + row('Night differential', r.NightDiff) + row('Allowances', r.Allowances) +
+    row('Less: absences', -Number(r.AbsenceDeduction)) + row('Less: late / undertime', -Number(r.LateDeduction)) + row('GROSS PAY', r.GrossPay, 'tot') + '</table>' +
+    '<table><tr><th>Deductions</th><th class="num">Amount</th></tr>' + row('SSS', r.SSS) + row('PhilHealth', r.PhilHealth) + row('Pag-IBIG', r.PagIBIG) + row('Withholding tax', r.Tax) +
+    row('Other deductions', r.OtherDeductions) + row('TOTAL DEDUCTIONS', r.TotalDeductions, 'tot') + '</table></div>' +
+    '<table style="margin-top:12px"><tr class="tot"><td style="font-size:15px">NET PAY</td><td class="num" style="font-size:15px">' + peso(r.NetPay) + '</td></tr></table>' +
+    (r.Remarks ? '<p>Remarks: ' + h(r.Remarks) + '</p>' : '') + '<p style="color:#667085;font-size:11px;margin-top:20px">This payslip is system-generated by the RB ABC HRIS. Confidential.</p>';
+}
+
+function payslipModal(r, p, editable) {
+  var body = '<div class="card" style="padding:14px">' + payslipHtml(r, p).replace(/<h1>/, '<h1 style="font-size:16px">') + '</div>';
+  if (editable) body += '<h4 style="margin:14px 0 8px">Adjust</h4><div class="grid4">' + field('Holiday pay', 'HolidayPay', 'number', r.HolidayPay) + field('Night differential', 'NightDiff', 'number', r.NightDiff) +
+    field('Allowances', 'Allowances', 'number', r.Allowances) + field('Other deductions', 'OtherDeductions', 'number', r.OtherDeductions, { hint: 'loans, cash advance' }) +
+    field('Absent days', 'AbsentDays', 'number', r.AbsentDays) + field('Late / undertime (min)', 'LateMins', 'number', r.LateMins) +
+    field('Line status', 'Status', 'select', r.Status, { options: ['Pending', 'Processed'] }) + field('Remarks', 'Remarks', 'text', r.Remarks) + '</div>';
+  var m = modal({
+    title: 'Payslip — ' + r.EmployeeName, wide: true, ok: editable ? 'Save & recompute' : 'Print', cancel: 'Close',
+    body: body,
+    onOk: function (el) {
+      if (!editable) { printDoc('Payslip ' + r.EmployeeName, payslipHtml(r, p)); return true; }
+      var x = formData(el);
+      return api('payrollLineSave', { periodId: p.PeriodID, employeeId: r.EmployeeID, edits: x }).then(function (res) { reload(); return res.msg; });
+    }
+  });
+  if (editable) {
+    var b = document.createElement('button'); b.className = 'btn'; b.textContent = 'Print';
+    b.onclick = function () { printDoc('Payslip ' + r.EmployeeName, payslipHtml(r, p)); };
+    m.box.querySelector('.btns.end').prepend(b);
+  }
+}
+
+PAGES.payslips = function (el) {
+  return api('payslipsMine').then(function (rows) {
+    el.innerHTML = '<p class="sub">Payslips appear here once HR releases the payroll.</p>' + table([
+      { l: 'Period', f: function (r) { return '<b>' + h(r.Period.Label) + '</b><small>pay date ' + nice(r.Period.PayDate) + '</small>'; } },
+      { l: 'Gross', num: 1, f: function (r) { return peso(r.GrossPay); } }, { l: 'Deductions', num: 1, f: function (r) { return peso(r.TotalDeductions); } },
+      { l: 'Net pay', num: 1, f: function (r) { return '<b>' + peso(r.NetPay) + '</b>'; } }, { l: '', f: function () { return '<button class="btn sm">View / print</button>'; } }], rows, { click: 1, empty: 'No released payslips yet.' });
+    bindRows(el, rows, function (r) { payslipModal(r, r.Period, false); });
+    on(el, 'td .btn', function (b) { var i = +b.closest('tr').getAttribute('data-row'); payslipModal(rows[i], rows[i].Period, false); });
+  });
+};
+</script>

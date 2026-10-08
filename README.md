@@ -12,6 +12,7 @@ supabase/
 scripts/
   create-users.mjs   creates the starting accounts (Admin, HQs, RNS, Finance, one per branch)
 web/                 the Angular app
+hris-appscript/      RB ABC HRIS — separate Google Apps Script web app on a Google Sheet (see hris-appscript/README.md)
 ```
 
 ## What is in it
